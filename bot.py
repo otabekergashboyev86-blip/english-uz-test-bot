@@ -1,7 +1,11 @@
 import os
 import random
+import re
+import unicodedata
+
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+
 
 WORDS = [
     ("Argentina", "argentina"),
@@ -117,17 +121,69 @@ WORDS = [
     ("Today", "bugun"),
 ]
 
+
 state = {}
 
 
 def norm(s: str) -> str:
-    return " ".join(s.lower().strip().replace("’", "'").split())
+    s = unicodedata.normalize("NFKC", str(s)).lower().strip()
+
+    # Turli apostroflarni bir xil ko‘rinishga keltirish
+    for ch in ["’", "‘", "ʻ", "ʼ", "`", "´"]:
+        s = s.replace(ch, "'")
+
+    # Ketma-ket bo‘sh joylarni bitta qilish
+    s = re.sub(r"\s+", " ", s)
+
+    # Oddiy tinish belgilarini oxiridan olib tashlash
+    return s.strip(" .!?")
 
 
 def is_correct(user_answer: str, expected: str) -> bool:
-    a = norm(user_answer)
-    options = [norm(x) for x in expected.replace(" / ", "/").split("/")]
-    return a in options
+    user = norm(user_answer)
+    expected = str(expected).strip()
+
+    options = set()
+
+    # Asl javobning o‘zi
+    options.add(norm(expected))
+
+    # Vergul yoki / bilan berilgan variantlar
+    # Masalan: "kasb, ish" yoki "ustoz / o‘qituvchi"
+    for part in re.split(r"\s*(?:,|/)\s*", expected):
+        if part.strip():
+            options.add(norm(part))
+
+    # Qavs ichidagi alternativalar
+    # Masalan:
+    # The USA (The US)
+    # The USA
+    # The US
+    #
+    # My family name (surname) is ...
+    # My family name is ...
+    # My surname is ...
+    match = re.search(r"\(([^()]*)\)", expected)
+
+    if match:
+        before = expected[:match.start()].strip()
+        inside = match.group(1).strip()
+        after = expected[match.end():].strip()
+
+        if before or after:
+            # Qavsni olib tashlangan variant
+            without_parentheses = f"{before} {after}".strip()
+            options.add(norm(without_parentheses))
+
+            # Qavs ichidagi variant bilan
+            with_inside = f"{before} {inside} {after}".strip()
+            options.add(norm(with_inside))
+
+        # Oddiy holatda qavs ichidagi variantni ham qabul qilish
+        if inside:
+            options.add(norm(inside))
+
+    return user in options
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -152,14 +208,19 @@ async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     s = state.get(uid)
+
     if not s:
         await update.message.reply_text("Avval /test buyrug‘ini bosing.")
         return
-    await update.message.reply_text(f"📊 Natija: {s['score']}/{s['index']}")
+
+    await update.message.reply_text(
+        f"📊 Natija: {s['score']}/{s['index']}"
+    )
 
 
 async def ask(update: Update, uid: int):
     s = state[uid]
+
     if s["index"] >= len(WORDS):
         await update.message.reply_text(
             f"🎉 Test tugadi!\nNatijangiz: {s['score']}/{len(WORDS)}"
@@ -168,29 +229,40 @@ async def ask(update: Update, uid: int):
 
     n = s["index"] + 1
     word, uzbek = WORDS[s["index"]]
+
     direction = random.choice(["en_to_uz", "uz_to_en"])
     s["direction"] = direction
 
     if direction == "en_to_uz":
         s["expected"] = uzbek
-        await update.message.reply_text(f"{n}/111. 🇬🇧 {word}\n🇺🇿 O‘zbekchasi nima?")
+        await update.message.reply_text(
+            f"{n}/111. 🇬🇧 {word}\n"
+            "🇺🇿 O‘zbekchasi nima?"
+        )
     else:
         s["expected"] = word
-        await update.message.reply_text(f"{n}/111. 🇺🇿 {uzbek}\n🇬🇧 Inglizchasi nima?")
+        await update.message.reply_text(
+            f"{n}/111. 🇺🇿 {uzbek}\n"
+            "🇬🇧 Inglizchasi nima?"
+        )
 
 
 async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
+
     if uid not in state:
         return
 
     s = state[uid]
     expected = s.get("expected", "")
+
     if is_correct(update.message.text, expected):
         s["score"] += 1
         await update.message.reply_text("✅ To‘g‘ri!")
     else:
-        await update.message.reply_text(f"❌ Noto‘g‘ri. To‘g‘ri javob: {expected}")
+        await update.message.reply_text(
+            f"❌ Noto‘g‘ri. To‘g‘ri javob: {expected}"
+        )
 
     s["index"] += 1
     await ask(update, uid)
@@ -198,23 +270,30 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     token = os.environ.get("BOT_TOKEN")
+
     if not token:
         raise RuntimeError("BOT_TOKEN environment variable is missing")
 
     hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+
     if not hostname:
         raise RuntimeError("RENDER_EXTERNAL_HOSTNAME is missing")
 
     port = int(os.environ.get("PORT", "10000"))
+
     webhook_path = "telegram"
     webhook_url = f"https://{hostname}/{webhook_path}"
 
     app = Application.builder().token(token).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("test", test))
     app.add_handler(CommandHandler("restart", restart))
     app.add_handler(CommandHandler("score", score))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer))
+
+    app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, answer)
+    )
 
     app.run_webhook(
         listen="0.0.0.0",
