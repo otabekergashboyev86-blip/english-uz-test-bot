@@ -46,7 +46,7 @@ WORDS = [
     ("Conversation", "muloqot"),
     ("Read", "o‘qimoq"),
     ("Sentence", "gap"),
-    ("Help", "yordam bermoq"),
+    ("Help", "yordam bermoq,yordam"),
     ("Exercise", "mashq"),
     ("With", "bilan"),
     ("Complete", "tugatmoq"),
