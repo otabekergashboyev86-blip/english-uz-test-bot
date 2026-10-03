@@ -161,11 +161,12 @@ group_sessions = {}
 
 
 # =========================================================
-# JAVOBNI NORMALIZATSIYA
+# NORMALIZATSIYA
 # =========================================================
 
 def norm(s: str) -> str:
-    s = unicodedata.normalize("NFKC", str(s)).lower().strip()
+    s = unicodedata.normalize("NFKC", str(s))
+    s = s.lower().strip()
 
     for ch in ["’", "‘", "ʻ", "ʼ", "`", "´"]:
         s = s.replace(ch, "'")
@@ -180,15 +181,15 @@ def norm(s: str) -> str:
 # =========================================================
 
 def is_correct(user_answer: str, expected: str) -> bool:
-
     user = norm(user_answer)
     expected = str(expected).strip()
 
     options = set()
 
+    # To'liq javob
     options.add(norm(expected))
 
-    # Vergul yoki / orqali berilgan variantlar
+    # Vergul yoki / bilan ajratilgan variantlar
     for part in re.split(r"\s*(?:,|/)\s*", expected):
         if part.strip():
             options.add(norm(part))
@@ -219,7 +220,6 @@ def is_correct(user_answer: str, expected: str) -> bool:
 # =========================================================
 
 def is_group(update: Update) -> bool:
-
     if not update.effective_chat:
         return False
 
@@ -230,11 +230,10 @@ def is_group(update: Update) -> bool:
 
 
 # =========================================================
-# KEY
+# USER KEY
 # =========================================================
 
 def get_key(update: Update):
-
     return (
         update.effective_chat.id,
         update.effective_user.id,
@@ -242,30 +241,33 @@ def get_key(update: Update):
 
 
 # =========================================================
-# YANGI TEST
+# YANGI STATE
 # =========================================================
 
 def new_state():
-
     return {
         "index": 0,
         "score": 0,
         "combo": 0,
         "longest_combo": 0,
+
         "round_score": 0,
         "round_wrong": [],
         "rounds": 0,
+
         "expected": "",
         "direction": "",
+
         "waiting_next_round": False,
-        "nickname": "",
         "waiting_nickname": False,
+
+        "nickname": "",
         "finished": False,
     }
 
 
 # =========================================================
-# /START
+# START
 # =========================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -283,14 +285,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================================================
-# /TEST
+# TEST
 # =========================================================
 
 async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     key = get_key(update)
 
+    # =====================================================
     # GURUH
+    # =====================================================
+
     if is_group(update):
 
         chat_id = update.effective_chat.id
@@ -298,6 +303,7 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         session = group_sessions.get(chat_id)
 
+        # Yangi guruh testi
         if session is None or session["all_finished"]:
 
             session = {
@@ -307,6 +313,7 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             group_sessions[chat_id] = session
 
+        # Agar shu odam allaqachon testda bo'lsa
         if user_id in session["players"]:
 
             player = session["players"][user_id]
@@ -319,7 +326,11 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 return
 
+            # Eski tugagan ishtirokchini yangi testga qayta qo'shamiz
+            session["players"].pop(user_id, None)
+
         s = new_state()
+
         s["waiting_nickname"] = True
 
         state[key] = s
@@ -331,21 +342,27 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return
 
+    # =====================================================
     # PRIVATE
+    # =====================================================
+
     state[key] = new_state()
 
     await ask(update, context)
 
 
 # =========================================================
-# /RESTART
+# RESTART
 # =========================================================
 
 async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     key = get_key(update)
 
+    # =====================================================
     # GURUH
+    # =====================================================
+
     if is_group(update):
 
         chat_id = update.effective_chat.id
@@ -378,7 +395,10 @@ async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return
 
+    # =====================================================
     # PRIVATE
+    # =====================================================
+
     state[key] = new_state()
 
     await update.message.reply_text(
@@ -398,6 +418,9 @@ async def register_nickname(
 ):
 
     if not is_group(update):
+        return False
+
+    if not update.message or not update.message.text:
         return False
 
     key = get_key(update)
@@ -448,7 +471,7 @@ async def register_nickname(
         "finished": False,
     }
 
-    # Nickname xabarini o'chirish
+    # Faqat nickname xabarini o'chiramiz
     try:
         await update.message.delete()
     except Exception:
@@ -459,6 +482,7 @@ async def register_nickname(
         "🚀 Test boshlandi!"
     )
 
+    # Savolni yuborish
     await ask(update, context)
 
     return True
@@ -468,7 +492,10 @@ async def register_nickname(
 # SAVOL
 # =========================================================
 
-async def ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def ask(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     key = get_key(update)
 
@@ -481,12 +508,16 @@ async def ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if index >= len(WORDS):
 
-        await finish_test(update, context)
+        await finish_test(
+            update,
+            context
+        )
 
         return
 
     word, uzbek = WORDS[index]
 
+    # Har savolda yo'nalish tasodifiy
     direction = random.choice([
         "en_uz",
         "uz_en",
@@ -494,18 +525,20 @@ async def ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     s["direction"] = direction
 
+    # =====================================================
     # ENGLISH -> UZBEK
+    # =====================================================
+
     if direction == "en_uz":
 
         s["expected"] = uzbek
 
         flag = FLAGS.get(word, "")
 
-        word_text = (
-            f"{flag} {word}"
-            if flag
-            else word
-        )
+        if flag:
+            word_text = f"{flag} {word}"
+        else:
+            word_text = word
 
         question = (
             f"❓ {index + 1}/{len(WORDS)}\n\n"
@@ -513,7 +546,10 @@ async def ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🇺🇿 O‘zbekchasini yozing:"
         )
 
+    # =====================================================
     # UZBEK -> ENGLISH
+    # =====================================================
+
     else:
 
         s["expected"] = word
@@ -524,15 +560,29 @@ async def ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🇬🇧 Inglizchasini yozing:"
         )
 
+    # =====================================================
+    # GURUHDA
+    # =====================================================
+
     if is_group(update):
+
+        # MUHIM:
+        # Savol alohida yuboriladi.
+        # Keyinchalik answer() faqat foydalanuvchi
+        # javobini o'chiradi.
+        # Savolga tegilmaydi.
 
         await update.effective_chat.send_message(
             question
         )
 
+    # =====================================================
+    # PRIVATE
+    # =====================================================
+
     else:
 
-        await update.effective_message.reply_text(
+        await update.effective_chat.send_message(
             question
         )
 
@@ -541,7 +591,10 @@ async def ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # JAVOB
 # =========================================================
 
-async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def answer(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     if not update.message:
         return
@@ -556,9 +609,11 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     s = state[key]
 
+    # Nickname kutilayotgan bo'lsa
     if s["waiting_nickname"]:
         return
 
+    # Keyingi 10 ta tugmasi kutilayotgan bo'lsa
     if s["waiting_next_round"]:
 
         if is_group(update):
@@ -570,10 +625,12 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return
 
+    # Test tugagan
     if s["finished"]:
         return
 
     user_answer = update.message.text.strip()
+
     expected = s["expected"]
 
     correct = is_correct(
@@ -581,7 +638,10 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         expected
     )
 
-    # Guruhdagi javobni o'chirish
+    # =====================================================
+    # GURUHDA FAQAT FOYDALANUVCHI JAVOBINI O'CHIRAMIZ
+    # =====================================================
+
     if is_group(update):
 
         try:
@@ -589,7 +649,10 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
+    # =====================================================
     # TO'G'RI
+    # =====================================================
+
     if correct:
 
         s["score"] += 1
@@ -603,11 +666,15 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if s["combo"] == 3:
 
-            result += "\n\n🔥 COMBO x3!"
+            result += (
+                "\n\n🔥 COMBO x3!"
+            )
 
         elif s["combo"] == 5:
 
-            result += "\n\n⚡ COMBO x5 — zo‘r!"
+            result += (
+                "\n\n⚡ COMBO x5 — zo‘r!"
+            )
 
         elif (
             s["combo"] > 5
@@ -618,7 +685,10 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"\n\n🔥 COMBO x{s['combo']}!"
             )
 
+    # =====================================================
     # XATO
+    # =====================================================
+
     else:
 
         s["combo"] = 0
@@ -628,7 +698,12 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "uzbek": WORDS[s["index"]][1],
         })
 
+        # Guruhda to'g'ri javobni ko'rsatmaymiz
         result = "❌ Noto‘g‘ri."
+
+    # =====================================================
+    # NATIJANI YUBORISH
+    # =====================================================
 
     if is_group(update):
 
@@ -638,13 +713,16 @@ async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     else:
 
-        await update.message.reply_text(
+        await update.effective_chat.send_message(
             result
         )
 
+    # =====================================================
+    # KEYINGI SAVOL
+    # =====================================================
+
     s["index"] += 1
 
-    # 10 talik round
     if (
         s["index"] % ROUND_SIZE == 0
         or s["index"] >= len(WORDS)
@@ -719,7 +797,10 @@ async def round_result(
         f"x{s['longest_combo']}"
     )
 
+    # =====================================================
     # XATO SO'ZLAR
+    # =====================================================
+
     if s["round_wrong"]:
 
         text += (
@@ -740,7 +821,10 @@ async def round_result(
             "\n\n🎉 Bu bosqichda xato yo‘q!"
         )
 
-    # TEST TUGADI
+    # =====================================================
+    # 111 TA TUGAGAN
+    # =====================================================
+
     if s["index"] >= len(WORDS):
 
         await send_message(
@@ -756,7 +840,10 @@ async def round_result(
 
         return
 
-    # Keyingi 10 ta
+    # =====================================================
+    # KEYINGI 10 TA
+    # =====================================================
+
     s["waiting_next_round"] = True
 
     keyboard = InlineKeyboardMarkup([
@@ -834,7 +921,7 @@ async def send_message(
 
     else:
 
-        await update.effective_message.reply_text(
+        await update.effective_chat.send_message(
             text,
             reply_markup=reply_markup
         )
@@ -862,7 +949,10 @@ async def finish_test(
 
     s["finished"] = True
 
+    # =====================================================
     # GURUH
+    # =====================================================
+
     if is_group(update):
 
         chat_id = update.effective_chat.id
@@ -881,7 +971,10 @@ async def finish_test(
 
         return
 
+    # =====================================================
     # PRIVATE
+    # =====================================================
+
     percentage = (
         s["score"]
         / len(WORDS)
@@ -952,7 +1045,10 @@ async def show_group_leaderboard(
 
     total_count = len(players)
 
-    # Hamma tugatmagan
+    # =====================================================
+    # HAMMA TUGATMAGAN
+    # =====================================================
+
     if finished_count < total_count:
 
         await update.effective_chat.send_message(
@@ -964,7 +1060,10 @@ async def show_group_leaderboard(
 
         return
 
-    # Natijalar
+    # =====================================================
+    # NATIJALAR
+    # =====================================================
+
     results = []
 
     for user_id, player in players.items():
@@ -982,8 +1081,8 @@ async def show_group_leaderboard(
             "longest_combo": s["longest_combo"],
         })
 
-    # Avval ochko.
-    # Ochko teng bo'lsa combo.
+    # Ochko bo'yicha.
+    # Ochko teng bo'lsa combo bo'yicha.
     results.sort(
         key=lambda x: (
             x["score"],
@@ -1024,7 +1123,10 @@ async def show_group_leaderboard(
             f"x{result['longest_combo']}\n\n"
         )
 
-    # G'olib
+    # =====================================================
+    # G'OLIB
+    # =====================================================
+
     if results:
 
         winner = results[0]
@@ -1053,10 +1155,13 @@ async def show_group_leaderboard(
 
 
 # =========================================================
-# /SCORE
+# SCORE
 # =========================================================
 
-async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def score(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     key = get_key(update)
 
@@ -1114,7 +1219,10 @@ async def restart_game(
 
     state[key] = new_state()
 
+    # =====================================================
     # GURUH
+    # =====================================================
+
     if is_group(update):
 
         chat_id = update.effective_chat.id
@@ -1141,7 +1249,10 @@ async def restart_game(
 
         return
 
+    # =====================================================
     # PRIVATE
+    # =====================================================
+
     await update.effective_chat.send_message(
         "🔄 Test qayta boshlandi!"
     )
@@ -1161,7 +1272,16 @@ async def handle_text(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    # Guruhda nickname kutilyaptimi?
+    if not update.message:
+        return
+
+    if not update.message.text:
+        return
+
+    # =====================================================
+    # NICKNAME
+    # =====================================================
+
     if is_group(update):
 
         key = get_key(update)
@@ -1180,7 +1300,10 @@ async def handle_text(
                 if handled:
                     return
 
-    # Javob
+    # =====================================================
+    # JAVOB
+    # =====================================================
+
     await answer(
         update,
         context
@@ -1193,7 +1316,9 @@ async def handle_text(
 
 def main():
 
-    token = os.environ.get("BOT_TOKEN")
+    token = os.environ.get(
+        "BOT_TOKEN"
+    )
 
     hostname = os.environ.get(
         "RENDER_EXTERNAL_HOSTNAME"
@@ -1207,11 +1332,13 @@ def main():
     )
 
     if not token:
+
         raise RuntimeError(
             "BOT_TOKEN topilmadi!"
         )
 
     if not hostname:
+
         raise RuntimeError(
             "RENDER_EXTERNAL_HOSTNAME topilmadi!"
         )
@@ -1222,24 +1349,42 @@ def main():
         .build()
     )
 
-    # Commands
+    # =====================================================
+    # COMMANDS
+    # =====================================================
+
     application.add_handler(
-        CommandHandler("start", start)
+        CommandHandler(
+            "start",
+            start
+        )
     )
 
     application.add_handler(
-        CommandHandler("test", test)
+        CommandHandler(
+            "test",
+            test
+        )
     )
 
     application.add_handler(
-        CommandHandler("restart", restart)
+        CommandHandler(
+            "restart",
+            restart
+        )
     )
 
     application.add_handler(
-        CommandHandler("score", score)
+        CommandHandler(
+            "score",
+            score
+        )
     )
 
-    # Buttons
+    # =====================================================
+    # BUTTONS
+    # =====================================================
+
     application.add_handler(
         CallbackQueryHandler(
             next_round,
@@ -1254,7 +1399,10 @@ def main():
         )
     )
 
-    # Text
+    # =====================================================
+    # TEXT
+    # =====================================================
+
     application.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
@@ -1262,17 +1410,23 @@ def main():
         )
     )
 
-    # Webhook
+    # =====================================================
+    # WEBHOOK
+    # =====================================================
+
     webhook_path = "telegram"
 
     webhook_url = (
         f"https://{hostname}/{webhook_path}"
     )
 
+    # MUHIM:
+    # webhook_path EMAS
+    # url_path ishlatiladi.
     application.run_webhook(
         listen="0.0.0.0",
         port=port,
-        webhook_path=webhook_path,
+        url_path=webhook_path,
         webhook_url=webhook_url,
         drop_pending_updates=True,
     )
