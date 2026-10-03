@@ -14,6 +14,10 @@ from telegram.ext import (
 )
 
 
+# =========================================================
+# 111 TA SO'Z
+# =========================================================
+
 WORDS = [
     ("Argentina", "argentina"),
     ("Brazil", "Braziliya"),
@@ -129,11 +133,9 @@ WORDS = [
 ]
 
 
-ROUND_SIZE = 10
-
-state = {}
-group_players = {}
-
+# =========================================================
+# BAYROQLAR
+# =========================================================
 
 FLAGS = {
     "Argentina": "🇦🇷",
@@ -152,28 +154,61 @@ FLAGS = {
 }
 
 
+ROUND_SIZE = 10
+
+
+# =========================================================
+# STATE
+# =========================================================
+
+# Har bir foydalanuvchining alohida testi
+state = {}
+
+# Guruhdagi faol musobaqalar
+group_sessions = {}
+
+
+# =========================================================
+# JAVOBNI NORMALIZATSIYA QILISH
+# =========================================================
+
 def norm(s: str) -> str:
     s = unicodedata.normalize("NFKC", str(s)).lower().strip()
 
+    # Har xil apostroflarni oddiy apostrofga aylantiramiz
     for ch in ["’", "‘", "ʻ", "ʼ", "`", "´"]:
         s = s.replace(ch, "'")
 
+    # Bir nechta bo'sh joyni bittaga aylantiramiz
     s = re.sub(r"\s+", " ", s)
 
-    return s.strip(" .!?")
+    # Oxirdagi oddiy belgilarni olib tashlash
+    s = s.strip(" .!?")
 
+    return s.strip()
+
+
+# =========================================================
+# TO'G'RI JAVOBNI TEKSHIRISH
+# =========================================================
 
 def is_correct(user_answer: str, expected: str) -> bool:
     user = norm(user_answer)
+
     expected = str(expected).strip()
 
-    options = {norm(expected)}
+    options = set()
 
+    # Asosiy javob
+    options.add(norm(expected))
+
+    # Vergul yoki / bilan ajratilgan variantlar
     for part in re.split(r"\s*(?:,|/)\s*", expected):
         if part.strip():
             options.add(norm(part))
 
-    match = re.search(r"\(([^()]*)\)", expected)
+    # Qavs ichidagi variantlar
+    match = re.search(r"([^()]*)", expected)
 
     if match:
         before = expected[:match.start()].strip()
@@ -181,9 +216,11 @@ def is_correct(user_answer: str, expected: str) -> bool:
         after = expected[match.end():].strip()
 
         if before or after:
+            # Qavssiz
             without_parentheses = f"{before} {after}".strip()
             options.add(norm(without_parentheses))
 
+            # Qavs ichidagi so'z bilan
             with_inside = f"{before} {inside} {after}".strip()
             options.add(norm(with_inside))
 
@@ -193,27 +230,22 @@ def is_correct(user_answer: str, expected: str) -> bool:
     return user in options
 
 
-def new_state():
-    return {
-        "index": 0,
-        "score": 0,
-        "combo": 0,
-        "longest_combo": 0,
-        "round_score": 0,
-        "wrong": [],
-        "rounds": 0,
-        "expected": None,
-        "direction": None,
-        "waiting_next_round": False,
-        "nickname": None,
-        "waiting_nickname": False,
-        "finished": False,
-    }
-
+# =========================================================
+# GURUHMI?
+# =========================================================
 
 def is_group(update: Update) -> bool:
-    return update.effective_chat.type in ["group", "supergroup"]
+    chat = update.effective_chat
 
+    if not chat:
+        return False
+
+    return chat.type in ["group", "supergroup"]
+
+
+# =========================================================
+# STATE KEY
+# =========================================================
 
 def get_key(update: Update):
     return (
@@ -222,639 +254,161 @@ def get_key(update: Update):
     )
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if is_group(update):
-        await update.message.reply_text(
-            "👥 Guruh testi botiga xush kelibsiz!\n\n"
-            "📝 Testni boshlash uchun /test bosing.\n"
-            "Har bir ishtirokchi o‘z niknameini kiritadi."
-        )
-    else:
-        await update.message.reply_text(
-            "🇬🇧 English → Uzbek test botiga xush kelibsiz!\n\n"
-            "/test — testni boshlash\n"
-            "/restart — testni boshidan boshlash\n"
-            "/score — natijangiz"
-        )
+# =========================================================
+# YANGI TEST STATE
+# =========================================================
 
+def new_state():
+    return {
+        "index": 0,
+
+        "score": 0,
+
+        "combo": 0,
+
+        "longest_combo": 0,
+
+        "round_score": 0,
+
+        "round_wrong": [],
+
+        "rounds": 0,
+
+        "expected": "",
+
+        "direction": "",
+
+        "waiting_next_round": False,
+
+        "nickname": "",
+
+        "waiting_nickname": False,
+
+        "finished": False,
+    }
+
+
+# =========================================================
+# /START
+# =========================================================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    text = (
+        "👋 Assalomu alaykum!\n\n"
+        "🇬🇧 English — 🇺🇿 Uzbek test botiga xush kelibsiz.\n\n"
+        "📚 Jami so‘zlar: 111 ta\n"
+        "📝 Har bir bosqich: 10 ta savol\n\n"
+        "Buyruqlar:\n"
+        "/test — testni boshlash\n"
+        "/restart — testni qayta boshlash\n"
+        "/score — hozirgi natijani ko‘rish"
+    )
+
+    await update.message.reply_text(text)
+
+
+# =========================================================
+# /TEST
+# =========================================================
 
 async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     key = get_key(update)
 
-    state[key] = new_state()
+    # -----------------------------
+    # GURUH
+    # -----------------------------
 
     if is_group(update):
-        state[key]["waiting_nickname"] = True
+
+        chat_id = update.effective_chat.id
+        user_id = update.effective_user.id
+
+        session = group_sessions.get(chat_id)
+
+        # Agar eski musobaqa tugagan bo'lsa,
+        # yangi musobaqa boshlanadi
+        if session is None or session["all_finished"]:
+
+            session = {
+                "players": {},
+                "all_finished": False,
+            }
+
+            group_sessions[chat_id] = session
+
+        # Agar foydalanuvchi allaqachon testda bo'lsa
+        if user_id in session["players"]:
+
+            player = session["players"][user_id]
+
+            if not player["finished"]:
+                await update.message.reply_text(
+                    "⚠️ Siz allaqachon testdasiz."
+                )
+                return
+
+        # Yangi state
+        s = new_state()
+
+        s["waiting_nickname"] = True
+
+        state[key] = s
 
         await update.message.reply_text(
-            "👤 Ishtirok etish uchun niknameingizni yozing.\n\n"
-            "Masalan: @Ali yoki Ali"
+            "👤 Avval nickname kiriting.\n\n"
+            "Masalan:\n"
+            "@Ali"
         )
 
         return
 
-    await update.message.reply_text(
-        f"🚀 Test boshlandi!\n\n"
-        f"📚 Jami: {len(WORDS)} ta so‘z\n"
-        f"📝 Har raund: {ROUND_SIZE} ta savol"
-    )
+    # -----------------------------
+    # PRIVATE
+    # -----------------------------
+
+    s = new_state()
+
+    state[key] = s
 
     await ask(update, context)
 
+
+# =========================================================
+# /RESTART
+# =========================================================
 
 async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     key = get_key(update)
 
-    state[key] = new_state()
-
+    # GURUH
     if is_group(update):
-        state[key]["waiting_nickname"] = True
-
-        await update.message.reply_text(
-            "🔄 Test qaytadan boshlandi.\n\n"
-            "👤 Niknameingizni yozing:"
-        )
-
-        return
-
-    await update.message.reply_text(
-        "🔄 Test boshidan boshlandi!"
-    )
-
-    await ask(update, context)
-
-
-async def score(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    key = get_key(update)
-
-    if key not in state:
-        await update.message.reply_text(
-            "Hali test boshlamagansiz.\n\n"
-            "/test ni bosing."
-        )
-        return
-
-    s = state[key]
-
-    percentage = (s["score"] / len(WORDS)) * 100
-
-    nickname = s["nickname"]
-
-    name_text = f"👤 {nickname}\n" if nickname else ""
-
-    await update.message.reply_text(
-        f"📊 Natijangiz:\n\n"
-        f"{name_text}"
-        f"✅ Ball: {s['score']}/{len(WORDS)}\n"
-        f"📈 Foiz: {percentage:.1f}%\n"
-        f"🔥 Eng uzun combo: x{s['longest_combo']}\n"
-        f"📚 Raundlar: {s['rounds']}"
-    )
-
-
-async def ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    key = get_key(update)
-
-    if key not in state:
-        return
-
-    s = state[key]
-
-    index = s["index"]
-
-    if index >= len(WORDS):
-        await finish_test(update, context)
-        return
-
-    word, uzbek = WORDS[index]
-
-    direction = random.choice(["en_uz", "uz_en"])
-
-    s["direction"] = direction
-
-    if direction == "en_uz":
-        s["expected"] = uzbek
-
-        flag = FLAGS.get(word, "")
-        word_text = f"{flag} {word}" if flag else word
-
-        question = (
-            f"❓ {index + 1}/{len(WORDS)}\n\n"
-            f"🇬🇧 {word_text}\n\n"
-            f"🇺🇿 O‘zbekchasini yozing:"
-        )
-
-    else:
-        s["expected"] = word
-
-        question = (
-            f"❓ {index + 1}/{len(WORDS)}\n\n"
-            f"🇺🇿 {uzbek}\n\n"
-            f"🇬🇧 Inglizchasini yozing:"
-        )
-
-    await update.effective_message.reply_text(question)
-
-
-async def answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    key = get_key(update)
-
-    if key not in state:
-        return
-
-    s = state[key]
-
-    # Guruhda avval nikname kiritish
-    if is_group(update) and s["waiting_nickname"]:
-
-        nickname = update.message.text.strip()
-
-        if not nickname:
-            return
-
-        s["nickname"] = nickname
-        s["waiting_nickname"] = False
 
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
 
-        if chat_id not in group_players:
-            group_players[chat_id] = {}
-
-        group_players[chat_id][user_id] = {
-            "nickname": nickname,
-            "score": 0,
-            "longest_combo": 0,
-            "finished": False,
-        }
-
-        # Nikname xabarini ham o‘chiramiz
-        try:
-            await update.message.delete()
-        except Exception:
-            pass
-
-        await update.effective_chat.send_message(
-            f"✅ {nickname} ro‘yxatdan o‘tdi!\n\n"
-            f"🚀 Test boshlandi!"
-        )
-
-        await ask(update, context)
-
-        return
-
-    if s["waiting_next_round"]:
-        try:
-            await update.message.delete()
-        except Exception:
-            pass
-
-        await update.effective_chat.send_message(
-            "👇 Avval «Keyingi 10 ta» tugmasini bosing."
-        )
-
-        return
-
-    if s["finished"]:
-        try:
-            await update.message.delete()
-        except Exception:
-            pass
-
-        return
-
-    user_answer = update.message.text
-    expected = s["expected"]
-
-    index = s["index"]
-
-    if index >= len(WORDS):
-        return
-
-    word, uzbek = WORDS[index]
-
-    correct = is_correct(user_answer, expected)
-
-    # Eng muhim qism:
-    # foydalanuvchi yozgan javobni darhol o‘chiramiz
-    if is_group(update):
-        try:
-            await update.message.delete()
-        except Exception:
-            pass
-
-    if correct:
-
-        s["score"] += 1
-        s["round_score"] += 1
-        s["combo"] += 1
-
-        if s["combo"] > s["longest_combo"]:
-            s["longest_combo"] = s["combo"]
-
-        result_text = "✅ To‘g‘ri!"
-
-        if s["combo"] == 3:
-            result_text += "\n🔥 COMBO x3!"
-
-        elif s["combo"] == 5:
-            result_text += "\n⚡ COMBO x5 — zo‘r!"
-
-        elif s["combo"] > 5 and s["combo"] % 5 == 0:
-            result_text += f"\n🔥 COMBO x{s['combo']}!"
-
-    else:
-
-        s["combo"] = 0
-
-        s["wrong"].append(
-            {
-                "word": word,
-                "uzbek": uzbek,
-                "user_answer": user_answer,
-                "expected": expected,
-            }
-        )
-
-        result_text = (
-            f"❌ Noto‘g‘ri.\n"
-            f"✅ To‘g‘ri javob: {expected}"
-        )
-
-    # Guruhdagi umumiy o‘yinchi ma'lumotini yangilash
-    if is_group(update):
-        chat_id = update.effective_chat.id
-        user_id = update.effective_user.id
-
-        if chat_id in group_players:
-            group_players[chat_id][user_id]["score"] = s["score"]
-            group_players[chat_id][user_id]["longest_combo"] = (
-                s["longest_combo"]
-            )
-
-    if is_group(update):
-        await update.effective_chat.send_message(result_text)
-    else:
-        await update.message.reply_text(result_text)
-
-    s["index"] += 1
-
-    if s["index"] >= len(WORDS):
-        await finish_test(update, context)
-        return
-
-    if s["index"] % ROUND_SIZE == 0:
-        await round_result(update, context)
-        return
-
-    await ask(update, context)
-
-
-async def round_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    key = get_key(update)
-
-    s = state[key]
-
-    s["rounds"] += 1
-    s["waiting_next_round"] = True
-
-    round_number = s["rounds"]
-
-    text = (
-        f"🏁 {round_number}-raund tugadi!\n\n"
-        f"📊 Natija: {s['round_score']}/{ROUND_SIZE}\n"
-        f"🏆 Umumiy: {s['score']}/{len(WORDS)}\n"
-    )
-
-    if s["wrong"]:
-        text += "\n❌ Xato qilingan so‘zlar:\n"
-
-        for item in s["wrong"]:
-            text += (
-                f"• {item['word']} — {item['uzbek']}\n"
-            )
-    else:
-        text += "\n🎉 Bu raundda xato yo‘q!"
-
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "➡️ Keyingi 10 ta",
-                callback_data="next_round"
-            )
-        ]
-    ]
-
-    markup = InlineKeyboardMarkup(keyboard)
-
-    await update.effective_message.reply_text(
-        text,
-        reply_markup=markup
-    )
-
-
-async def next_round(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-
-    await query.answer()
-
-    chat_id = query.message.chat_id
-    user_id = query.from_user.id
-
-    key = (chat_id, user_id)
-
-    if key not in state:
-        await query.message.reply_text(
-            "Test topilmadi. /test ni bosing."
-        )
-        return
-
-    s = state[key]
-
-    if not s["waiting_next_round"]:
-        return
-
-    s["waiting_next_round"] = False
-    s["round_score"] = 0
-    s["wrong"] = []
-
-    await query.message.reply_text(
-        "🚀 Keyingi 10 ta savol boshlandi!"
-    )
-
-    await ask(update, context)
-
-
-async def restart_game(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-    query = update.callback_query
-
-    await query.answer()
-
-    chat_id = query.message.chat_id
-    user_id = query.from_user.id
-
-    key = (chat_id, user_id)
-
-    old_nickname = None
-
-    if key in state:
-        old_nickname = state[key].get("nickname")
-
-    state[key] = new_state()
-
-    # Guruhda nikname saqlanadi
-    if is_group(update) and old_nickname:
-        state[key]["nickname"] = old_nickname
-
-        if chat_id in group_players and user_id in group_players[chat_id]:
-            group_players[chat_id][user_id]["score"] = 0
-            group_players[chat_id][user_id]["longest_combo"] = 0
-            group_players[chat_id][user_id]["finished"] = False
-
-        await query.message.reply_text(
-            f"🔄 {old_nickname}, test qaytadan boshlandi!"
-        )
-
-        await ask(update, context)
-
-    else:
-        await query.message.reply_text(
-            "🔄 Test qaytadan boshlandi!"
-        )
-
-        await ask(update, context)
-
-
-async def finish_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    key = get_key(update)
-
-    s = state[key]
-
-    s["finished"] = True
-
-    total = len(WORDS)
-    score_value = s["score"]
-    percentage = (score_value / total) * 100
-
-    nickname = s["nickname"]
-
-    # Guruh o‘yinchisini yakunlangan deb belgilash
-    if is_group(update):
-        chat_id = update.effective_chat.id
-        user_id = update.effective_user.id
-
-        if chat_id not in group_players:
-            group_players[chat_id] = {}
-
-        if user_id not in group_players[chat_id]:
-            group_players[chat_id][user_id] = {
-                "nickname": nickname or str(user_id),
-                "score": score_value,
-                "longest_combo": s["longest_combo"],
-                "finished": True,
+        session = group_sessions.get(chat_id)
+
+        if session is None:
+            session = {
+                "players": {},
+                "all_finished": False,
             }
 
-        group_players[chat_id][user_id]["score"] = score_value
-        group_players[chat_id][user_id]["longest_combo"] = (
-            s["longest_combo"]
-        )
-        group_players[chat_id][user_id]["finished"] = True
+            group_sessions[chat_id] = session
 
-        text = (
-            f"🎉 {nickname} TESTNI YAKUNLADI!\n\n"
-            f"🏆 Natija: {score_value}/{total}\n"
-            f"📈 Foiz: {percentage:.1f}%\n"
-            f"🔥 Eng uzun combo: x{s['longest_combo']}"
-        )
+        s = new_state()
 
-        await update.effective_chat.send_message(text)
+        s["waiting_nickname"] = True
 
-        await show_group_leaderboard(
-            update,
-            context,
-            chat_id
-        )
+        state[key] = s
 
-        return
+        # Eski participantni olib tashlaymiz
+        session["players"].pop(user_id, None)
 
-    # Shaxsiy chatdagi yakuniy natija
-    text = (
-        "🎉 TEST YAKUNLANDI!\n\n"
-        f"🏆 Umumiy natija: {score_value}/{total}\n"
-        f"📈 Foiz: {percentage:.1f}%\n"
-        f"🔥 Eng uzun combo: x{s['longest_combo']}\n"
-        f"📚 Raundlar: {s['rounds']}\n\n"
-    )
+        session["all_finished"] = False
 
-    if score_value == total:
-        text += "💯 Mukammal natija! 🔥"
-
-    elif percentage >= 90:
-        text += "🌟 Juda yaxshi natija!"
-
-    elif percentage >= 70:
-        text += "👏 Yaxshi natija!"
-
-    elif percentage >= 50:
-        text += "💪 Yana mashq qiling!"
-
-    else:
-        text += "📚 So‘zlarni yana bir bor takrorlang!"
-
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "🔄 Qaytadan boshlash",
-                callback_data="restart_game"
-            )
-        ]
-    ]
-
-    await update.effective_message.reply_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-
-async def show_group_leaderboard(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    chat_id: int
-):
-    if chat_id not in group_players:
-        return
-
-    players = group_players[chat_id]
-
-    if not players:
-        return
-
-    # Hamma qatnashchilar testni tugatganmi?
-    if not all(
-        player["finished"]
-        for player in players.values()
-    ):
-        finished_count = sum(
-            1
-            for player in players.values()
-            if player["finished"]
-        )
-
-        total_players = len(players)
-
-        await update.effective_chat.send_message(
-            f"⏳ Hozircha {finished_count}/{total_players} "
-            f"ishtirokchi testni tugatdi."
-        )
-
-        return
-
-    # Ball bo‘yicha saralash.
-    # Ball teng bo‘lsa, eng uzun combo yuqoriga chiqadi.
-    ranking = sorted(
-        players.values(),
-        key=lambda x: (
-            x["score"],
-            x["longest_combo"]
-        ),
-        reverse=True
-    )
-
-    text = "🏆 TEST YAKUNIY NATIJALARI!\n\n"
-
-    medals = ["🥇", "🥈", "🥉"]
-
-    for i, player in enumerate(ranking):
-
-        if i < 3:
-            medal = medals[i]
-        else:
-            medal = f"{i + 1}."
-
-        percentage = (
-            player["score"] / len(WORDS)
-        ) * 100
-
-        text += (
-            f"{medal} {player['nickname']}\n"
-            f"   📊 {player['score']}/{len(WORDS)} "
-            f"({percentage:.1f}%)\n"
-            f"   🔥 Combo: x{player['longest_combo']}\n\n"
-        )
-
-    winner = ranking[0]
-
-    text += (
-        "🎉🎉🎉 G‘OLIB 🎉🎉🎉\n\n"
-        f"🏆 {winner['nickname']}\n"
-        f"📊 {winner['score']}/{len(WORDS)}\n"
-        f"🔥 Eng uzun combo: x{winner['longest_combo']}\n\n"
-        "👏 Barcha ishtirokchilarga rahmat!"
-    )
-
-    await update.effective_chat.send_message(text)
-
-
-def main():
-    token = os.environ["BOT_TOKEN"]
-
-    hostname = os.environ["RENDER_EXTERNAL_HOSTNAME"]
-    port = int(os.environ.get("PORT", 10000))
-
-    webhook_path = "telegram"
-
-    webhook_url = f"https://{hostname}/{webhook_path}"
-
-    app = Application.builder().token(token).build()
-
-    app.add_handler(
-        CommandHandler("start", start)
-    )
-
-    app.add_handler(
-        CommandHandler("test", test)
-    )
-
-    app.add_handler(
-        CommandHandler("restart", restart)
-    )
-
-    app.add_handler(
-        CommandHandler("score", score)
-    )
-
-    app.add_handler(
-        CallbackQueryHandler(
-            next_round,
-            pattern="^next_round$"
-        )
-    )
-
-    app.add_handler(
-        CallbackQueryHandler(
-            restart_game,
-            pattern="^restart_game$"
-        )
-    )
-
-    app.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            answer
-        )
-    )
-
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=port,
-        url_path=webhook_path,
-        webhook_url=webhook_url,
-        drop_pending_updates=True,
-    )
-
-
-if __name__ == "__main__":
-    main()
+        await update.message.reply_text(
+            "🔄 Test qayta boshlandi
