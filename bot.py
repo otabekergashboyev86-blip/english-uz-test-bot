@@ -359,7 +359,7 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "👤 Avval nickname kiriting.\n\n"
             "Masalan:\n"
-            "@Ali"
+            "@Otabek yoki Kumush"
         )
 
         return
