@@ -1,9 +1,232 @@
+import os
 import re
+import random
 import unicodedata
+import threading
+import time
+import urllib.request
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters,
+)
 
 
 # =========================================================
-# JAVOBNI NORMALIZATSIYA QILISH
+# 150 TA SO'Z
+# 111 TA ESKI + 39 TA YANGI
+# =========================================================
+
+WORDS = [
+
+    # =====================================================
+    # 1-111
+    # =====================================================
+
+    ("Argentina", "Argentina"),
+    ("Brazil", "Braziliya"),
+    ("Canada", "Kanada"),
+    ("Italy", "Italiya"),
+    ("Japan", "Yaponiya"),
+    ("Mexico", "Meksika"),
+    ("Poland", "Polsha"),
+    ("Spain", "Ispaniya"),
+    ("Thailand", "Tailand"),
+    ("Great Britain", "Buyuk Britaniya"),
+    ("The UK", "Birlashgan Qirollik"),
+    ("The USA (The US)", "Amerika Qo‘shma Shtatlari"),
+    ("Turkey", "Turkiya"),
+
+    ("Flag", "bayroq"),
+    ("Country", "mamlakat"),
+    ("Match", "tanlamoq"),
+    ("Look", "qaramoq"),
+    ("Listen", "tinglamoq"),
+    ("Work", "ishlamoq"),
+    ("Person", "odam"),
+    ("People", "odamlar"),
+    ("Box", "quti"),
+    ("Check", "tekshirmoq"),
+    ("Repeat", "qaytarmoq"),
+    ("Conversation", "muloqot"),
+    ("Read", "o‘qimoq"),
+    ("Sentence", "gap"),
+    ("Help", "yordam bermoq"),
+    ("Exercise", "mashq"),
+    ("With", "bilan"),
+    ("Complete", "tugatmoq"),
+    ("Other", "boshqa"),
+    ("Map", "xarita"),
+    ("Underline", "tagiga chizmoq"),
+    ("Job", "kasb, ish"),
+    ("Short", "kalta"),
+    ("Form", "shakl"),
+    ("Question", "savol"),
+    ("Answer", "javob"),
+    ("Page", "sahifa, bet"),
+    ("Again", "qaytadan"),
+    ("Correct", "to‘g‘ri, to‘g‘rilamoq"),
+    ("Example", "misol"),
+    ("Alternative", "tanlov"),
+    ("Tell", "gapirib bermoq"),
+    ("Pronunciation", "talaffuz"),
+    ("Nationality", "millat"),
+    ("The same", "bir xil"),
+    ("Famous", "mashhur"),
+    ("Some", "ba’zi, bir nechta"),
+    ("True", "to‘g‘ri"),
+    ("False", "noto‘g‘ri"),
+    ("Word", "so‘z"),
+    ("Make", "qilmoq, yasamoq"),
+    ("All", "hamma, barcha"),
+    ("Photo", "rasm, surat"),
+    ("Order", "tartib"),
+    ("Useful phrases", "foydali iboralar"),
+    ("Use", "ishlatmoq"),
+    ("Partner", "sherik"),
+    ("Nice to meet you", "Tanishganimdan xursandman"),
+    ("Here", "bu yerda"),
+    ("Conference", "konferensiya"),
+    ("What’s your name?", "Ismingiz nima?"),
+    ("My name is ...", "Mening ismim ..."),
+    ("What’s your family name (surname)?", "Familiyangiz nima?"),
+    ("My family name (surname) is ...", "Mening familiyam ..."),
+    ("Where are you from?", "Qayerdansiz?"),
+    ("I’m from ...", "Men ...danman"),
+    ("Football player", "futbolchi"),
+    ("Doctor", "shifokor"),
+    ("School teacher", "ustoz, o‘qituvchi"),
+    ("Pilot", "uchuvchi"),
+    ("Farmer", "fermer"),
+    ("Nurse", "hamshira"),
+    ("Taxi driver", "taksist"),
+    ("Office worker", "ofis xodimi"),
+    ("Hospital", "shifoxona"),
+    ("Small", "kichkina"),
+    ("Good", "yaxshi"),
+    ("Team", "jamoa"),
+    ("Manager", "menejer"),
+    ("Nice", "yaxshi"),
+    ("Thai", "tailandlik"),
+    ("British", "britaniyalik"),
+    ("Polish", "polshalik"),
+    ("Spanish", "ispaniyalik"),
+    ("Turkish", "turkiyalik"),
+    ("Mexican", "meksikalik"),
+    ("Japanese", "yaponiyalik"),
+    ("Italian", "italiyalik"),
+    ("American", "amerikalik"),
+    ("Canadian", "kanadalik"),
+    ("Brazilian", "braziliyalik"),
+    ("Argentinian", "argentinalik"),
+    ("University", "universitet"),
+    ("Friend", "do‘st"),
+    ("All over the world", "butun dunyo bo‘ylab"),
+    ("And", "va"),
+    ("But", "lekin"),
+    ("Now", "hozir"),
+    ("Hotel", "mehmonxona"),
+    ("What’s your phone number?", "telefon raqamingiz qanday?"),
+    ("What’s your email address?", "elektron pochta manzilingiz qanday?"),
+    ("Sorry, can you say that again?", "Uzr, qaytadan ayta olasizmi?"),
+    ("How do you spell (your name)?", "Ismingiz qanday harflanadi?"),
+    ("@", "at"),
+    ("Dot", "nuqta"),
+    ("Class", "dars, sinf"),
+    ("Late", "kech qolmoq"),
+    ("Today", "bugun"),
+
+    # =====================================================
+    # 112-150
+    # =====================================================
+
+    ("About", "haqida"),
+    ("Father", "ota, dada"),
+    ("Mother", "ona"),
+    ("Parents", "ota-ona"),
+    ("Grandfather", "bobo"),
+    ("Grandmother", "buvi"),
+    ("Son", "o‘g‘il"),
+    ("Daughter", "qiz"),
+    ("Child", "bola, farzand"),
+    ("Children", "bolalar, farzandlar"),
+    ("Uncle", "amaki, tog‘a"),
+    ("Aunt", "xola, amma"),
+    ("Cousin(e)", "amakivachcha, xolavachcha"),
+    ("Nephew", "jiyan (o‘g‘il)"),
+    ("Niece", "jiyan (qiz)"),
+    ("Husband", "er"),
+    ("Wife", "xotin"),
+    ("Desk", "parta"),
+    ("Table", "stol"),
+    ("Chair", "stul"),
+    ("Key", "kalit"),
+    ("Clock", "soat"),
+    ("Cup", "krujka, piyola"),
+    ("Who", "kim"),
+    ("Whose", "kimning"),
+    ("What", "nima, qanday"),
+    ("Where", "qayer"),
+    ("When", "qachon"),
+    ("Why", "nega, nima uchun"),
+    ("How", "qanday, qanday qilib"),
+    ("How often", "qanchalik tez-tez"),
+    ("How many", "nechta"),
+    ("How much", "qancha"),
+    ("How much is this?", "Bu qancha turadi?"),
+    ("How much are these?", "Bular qancha turadi?"),
+    ("Can I pay by card?", "Kartadan to‘lasam bo‘ladimi?"),
+    ("Here you are", "Mana, marhamat"),
+    ("Here is your change", "Mana qaytimingiz"),
+    ("Cash or card?", "Naqd pulmi yoki kartami?"),
+]
+
+
+# =========================================================
+# TEKSHIRUV
+# =========================================================
+
+assert len(WORDS) == 150, f"WORDS soni 150 emas: {len(WORDS)}"
+
+
+# =========================================================
+# BAYROQLAR
+# =========================================================
+
+FLAGS = {
+    "argentina": "🇦🇷",
+    "brazil": "🇧🇷",
+    "canada": "🇨🇦",
+    "italy": "🇮🇹",
+    "japan": "🇯🇵",
+    "mexico": "🇲🇽",
+    "poland": "🇵🇱",
+    "spain": "🇪🇸",
+    "thailand": "🇹🇭",
+    "great britain": "🇬🇧",
+    "the uk": "🇬🇧",
+    "the usa (the us)": "🇺🇸",
+    "turkey": "🇹🇷",
+}
+
+
+# =========================================================
+# TEST SOZLAMALARI
+# =========================================================
+
+ROUND_SIZE = 10
+
+# Har bir foydalanuvchining holati
+state = {}
+
+
+# =========================================================
+# NORMALIZATSIYA
 # =========================================================
 
 def norm(text):
@@ -12,30 +235,32 @@ def norm(text):
 
     text = unicodedata.normalize("NFKC", str(text))
 
-    # Katta-kichik harf farq qilmaydi
+    # Katta/kichik harf farq qilmaydi
     text = text.casefold()
 
-    # O‘zbek apostroflarining barcha ko‘rinishlarini bir xil qilamiz
+    # Apostrof variantlarini bir xil qilamiz
     apostrophes = "’‘ʻʼ`´ʹ′"
     for ch in apostrophes:
         text = text.replace(ch, "'")
 
-    # Ko‘p uchraydigan belgilarni bir xil ko‘rinishga keltirish
+    # Belgilar
     text = text.replace("–", "-")
     text = text.replace("—", "-")
     text = text.replace("_", " ")
 
-    # Qavs va tinish belgilarini olib tashlaymiz
+    # Qavslarni olib tashlash
     text = re.sub(r"[()[\]{}]", " ", text)
+
+    # Tinish belgilarini bo‘sh joyga aylantirish
     text = re.sub(r"[,;:!?]+", " ", text)
 
-    # Chiziqcha so‘z oralig‘i sifatida ishlasin
+    # Chiziqchalarni bo‘sh joyga aylantirish
     text = re.sub(r"\s*-\s*", " ", text)
 
-    # Ortiqcha bo‘sh joylar
+    # Ortiqcha bo‘sh joy
     text = re.sub(r"\s+", " ", text).strip()
 
-    # Oxiridagi nuqta va boshqa belgilar
+    # Oxiridagi belgilar
     text = text.strip(" .,!?:;-")
 
     return text
@@ -46,36 +271,24 @@ def norm(text):
 # =========================================================
 
 def build_options(expected):
-    """
-    Masalan:
-    'kasb, ish'
-    -> kasb
-    -> ish
-
-    'ustoz / o‘qituvchi'
-    -> ustoz
-    -> o‘qituvchi
-
-    'The USA (The US)'
-    -> The USA
-    -> The US
-    -> The USA The US
-    """
-
     expected = str(expected).strip()
 
-    options = {expected}
+    options = set()
 
-    # Vergul va / orqali berilgan variantlar
+    # Asosiy javob
+    options.add(expected)
+
+    # Vergul va slash orqali berilgan variantlar
     parts = re.split(r"\s*[,/]\s*", expected)
 
     for part in parts:
         part = part.strip()
+
         if part:
             options.add(part)
 
-    # Qavs ichidagi variantlarni ham alohida qabul qilamiz
-    matches = re.findall(r"\((.*?)\)", expected)
+    # Qavs ichidagi variant
+    matches = re.findall(r"(.*?)", expected)
 
     for inside in matches:
         inside = inside.strip()
@@ -84,7 +297,11 @@ def build_options(expected):
             options.add(inside)
 
     # Qavssiz ko‘rinish
-    without_parentheses = re.sub(r"\s*\(.*?\)", "", expected).strip()
+    without_parentheses = re.sub(
+        r"\s*.*?",
+        "",
+        expected
+    ).strip()
 
     if without_parentheses:
         options.add(without_parentheses)
@@ -97,51 +314,39 @@ def build_options(expected):
 
 
 # =========================================================
-# MAXSUS QABUL QILINADIGAN VARIANTLAR
-# =========================================================
-#
-# Bu yerda foydalanuvchi tabiiy ravishda aytishi mumkin
-# bo‘lgan javoblar beriladi.
-#
-# DIQQAT:
-# Bu WORDS ro‘yxatini o‘zgartirmaydi.
-# Faqat javob tekshirishni aqlli qiladi.
+# MAXSUS JAVOB VARIANTLARI
 # =========================================================
 
 ANSWER_ALIASES = {
 
-    # -------------------------
-    # 112-150 YANGI SO‘ZLAR
-    # -------------------------
-
     "about": [
-        "haqida"
+        "haqida",
     ],
 
     "father": [
         "ota",
-        "dada"
+        "dada",
     ],
 
     "mother": [
         "ona",
-        "oyi"
+        "oyi",
     ],
 
     "parents": [
         "ota ona",
         "ota-ona",
-        "ota va ona"
+        "ota va ona",
     ],
 
     "grandfather": [
         "bobo",
-        "katta ota"
+        "katta ota",
     ],
 
     "grandmother": [
         "buvi",
-        "katta ona"
+        "katta ona",
     ],
 
     "son": [
@@ -150,35 +355,36 @@ ANSWER_ALIASES = {
         "oʻgʻil",
         "o‘g‘il bola",
         "o'g'il bola",
-        "oʻgʻil bola"
+        "oʻgʻil bola",
     ],
 
     "daughter": [
         "qiz",
         "qiz farzand",
-        "qiz bola"
+        "qiz bola",
+        "qizbola",
     ],
 
     "child": [
         "bola",
-        "farzand"
+        "farzand",
     ],
 
     "children": [
         "bolalar",
-        "farzandlar"
+        "farzandlar",
     ],
 
     "uncle": [
         "amaki",
         "tog‘a",
         "tog'a",
-        "togʻa"
+        "togʻa",
     ],
 
     "aunt": [
         "xola",
-        "amma"
+        "amma",
     ],
 
     "cousin(e)": [
@@ -186,15 +392,11 @@ ANSWER_ALIASES = {
         "xolavachcha",
         "tog‘avachcha",
         "tog'avachcha",
-
-        # Ko‘p uchraydigan yozish xatolari
         "amakivatcha",
         "xolavatcha",
         "togavatcha",
-
-        # Ikkalasini birga yozsa ham
         "amakivachcha xolavachcha",
-        "amakivatcha xolavatcha"
+        "amakivatcha xolavatcha",
     ],
 
     "nephew": [
@@ -208,7 +410,7 @@ ANSWER_ALIASES = {
         "o‘g‘il jiyan",
         "o'g'il jiyan",
         "oʻgʻil jiyan",
-        "o‘g‘il bola"
+        "o‘g‘il bola",
     ],
 
     "niece": [
@@ -219,15 +421,14 @@ ANSWER_ALIASES = {
         "qiz jiyan",
         "qiz bola",
         "qizbola",
-        "qizjoyan"
+        "qizjoyan",
     ],
 
     "husband": [
         "er",
         "eri",
-        "er kishi",
         "turmush o‘rtog‘i",
-        "turmush o'rtog'i"
+        "turmush o'rtog'i",
     ],
 
     "wife": [
@@ -235,68 +436,67 @@ ANSWER_ALIASES = {
         "hotin",
         "rafiqa",
         "turmush o‘rtog‘i",
-        "turmush o'rtog'i"
+        "turmush o'rtog'i",
     ],
 
-    # MUHIM: Deck emas, Desk
     "desk": [
         "parta",
-        "maktab partasi"
+        "maktab partasi",
     ],
 
     "table": [
-        "stol"
+        "stol",
     ],
 
     "chair": [
         "stul",
-        "kursi"
+        "kursi",
     ],
 
     "key": [
-        "kalit"
+        "kalit",
     ],
 
     "clock": [
-        "soat"
+        "soat",
     ],
 
     "cup": [
         "krujka",
-        "piyola"
+        "piyola",
     ],
 
     "who": [
-        "kim"
+        "kim",
     ],
 
     "whose": [
-        "kimning"
+        "kimning",
     ],
 
     "what": [
         "nima",
-        "qanday"
+        "qanday",
     ],
 
     "where": [
         "qayer",
-        "qayerda"
+        "qayerda",
     ],
 
     "when": [
-        "qachon"
+        "qachon",
     ],
 
     "why": [
         "nega",
         "nima uchun",
-        "nimaga"
+        "nimaga",
     ],
 
     "how": [
         "qanday",
-        "qanday qilib"
+        "qanday qilib",
     ],
 
     "how often": [
@@ -304,16 +504,16 @@ ANSWER_ALIASES = {
         "qanchalik tez tez",
         "necha marta",
         "qancha tez-tez",
-        "qancha tez tez"
+        "qancha tez tez",
     ],
 
     "how many": [
         "nechta",
-        "qancha"
+        "qancha",
     ],
 
     "how much": [
-        "qancha"
+        "qancha",
     ],
 
     "how much is this?": [
@@ -321,7 +521,7 @@ ANSWER_ALIASES = {
         "bu necha pul",
         "bu nechi pul",
         "nechi pul bu",
-        "qancha turadi"
+        "qancha turadi",
     ],
 
     "how much are these?": [
@@ -329,64 +529,63 @@ ANSWER_ALIASES = {
         "bular necha pul",
         "bular nechi pul",
         "nechi pul bular",
-        "qancha turadi"
+        "qancha turadi",
     ],
 
     "can i pay by card?": [
         "kartadan to‘lasam bo‘ladimi",
         "kartadan to'lasam bo'ladimi",
         "karta bilan to‘lasam bo‘ladimi",
-        "karta bilan to'lasam bo'ladimi"
+        "karta bilan to'lasam bo'ladimi",
     ],
 
     "here you are": [
         "mana",
         "marhamat",
-        "mana marhamat"
+        "mana marhamat",
     ],
 
     "here is your change": [
         "mana qaytimingiz",
         "mana qaytishingiz",
         "qaytimingiz",
-        "qaytim"
+        "qaytim",
     ],
 
     "cash or card?": [
         "naqd pulmi yoki kartami",
         "naqd pulmi yoki karta",
         "naqdmi yoki karta",
-        "naqd yoki karta"
+        "naqd yoki karta",
     ],
 
-
-    # -------------------------
-    # ESKI SO‘ZLARDAGI MUHIM VARIANTLAR
-    # -------------------------
+    # =====================================================
+    # ESKI SO‘ZLAR UCHUN QO‘SHIMCHA VARIANTLAR
+    # =====================================================
 
     "work": [
         "ishlamoq",
         "ishlash",
         "ish",
         "mehnat qilmoq",
-        "mehnat"
+        "mehnat",
     ],
 
     "job": [
         "kasb",
-        "ish"
+        "ish",
     ],
 
     "read": [
         "o‘qimoq",
         "o'qimoq",
         "oʻqimoq",
-        "oqimoq"
+        "oqimoq",
     ],
 
     "help": [
         "yordam",
-        "yordam bermoq"
+        "yordam bermoq",
     ],
 
     "correct": [
@@ -395,69 +594,70 @@ ANSWER_ALIASES = {
         "toʻgʻri",
         "togri",
         "to‘g‘rilamoq",
-        "to'g'rilamoq"
+        "to'g'rilamoq",
+        "togrilamoq",
     ],
 
     "make": [
         "qilmoq",
         "yasamoq",
-        "yasash"
+        "yasash",
     ],
 
     "some": [
         "ba’zi",
         "ba'zi",
         "baʼzi",
-        "bir nechta"
+        "bir nechta",
     ],
 
     "all": [
         "hamma",
-        "barcha"
+        "barcha",
     ],
 
     "photo": [
         "rasm",
-        "surat"
+        "surat",
     ],
 
     "page": [
         "sahifa",
-        "bet"
+        "bet",
     ],
 
     "class": [
         "dars",
-        "sinf"
+        "sinf",
     ],
 
     "nice to meet you": [
         "tanishganimdan xursandman",
-        "tanishganimdan hursandman"
+        "tanishganimdan hursandman",
     ],
 
     "conference": [
-        "konferensiya"
+        "konferensiya",
     ],
 
     "what’s your phone number?": [
         "telefon raqamingiz qanday",
         "telefon raqamingiz nima",
-        "telefon raqamingiz"
+        "telefon raqamingiz",
     ],
 
     "what’s your email address?": [
         "elektron pochtangiz qanday",
         "elektron pochta manzilingiz qanday",
         "email manzilingiz qanday",
-        "emailingiz qanday"
+        "emailingiz qanday",
     ],
 
     "sorry, can you say that again?": [
         "uzr qaytadan ayta olasizmi",
         "uzr qayta ayta olasizmi",
         "qaytadan ayta olasizmi",
-        "qayta ayta olasizmi"
+        "qayta ayta olasizmi",
     ],
 
     "how do you spell (your name)?": [
@@ -465,198 +665,728 @@ ANSWER_ALIASES = {
         "ismingizni qanday harflaysiz",
         "ismingizni harflab ayting",
         "qanday harflanadi",
-        "what spell"
+        "what spell",
     ],
 
     "dot": [
-        "nuqta"
+        "nuqta",
     ],
 
     "hotel": [
-        "mehmonxona"
+        "mehmonxona",
     ],
 
     "now": [
-        "hozir"
+        "hozir",
     ],
 
     "today": [
-        "bugun"
+        "bugun",
     ],
 
     "late": [
         "kech qolmoq",
         "kechikmoq",
-        "kech qolish"
+        "kech qolish",
     ],
 
     "match": [
         "tanlamoq",
         "moslashtirmoq",
-        "moslashtirish"
+        "moslashtirish",
     ],
 
     "complete": [
         "tugatmoq",
         "to‘ldirmoq",
         "to'ldirmoq",
-        "toʻldirmoq"
+        "toʻldirmoq",
     ],
 
     "alternative": [
         "tanlov",
         "muqobil variant",
-        "muqobil"
+        "muqobil",
     ],
 
     "tell": [
         "aytmoq",
-        "gapirib bermoq"
+        "gapirib bermoq",
     ],
 
     "nice": [
         "yaxshi",
-        "yoqimli"
+        "yoqimli",
     ],
 
     "short": [
         "kalta",
-        "qisqa"
+        "qisqa",
     ],
 
     "form": [
         "shakl",
-        "forma"
+        "forma",
     ],
 
     "use": [
         "ishlatmoq",
-        "foydalanmoq"
+        "foydalanmoq",
     ],
 
     "here": [
         "bu yerda",
-        "shu yerda"
+        "shu yerda",
     ],
 
     "flag": [
-        "bayroq"
+        "bayroq",
     ],
 
     "country": [
         "mamlakat",
-        "davlat"
+        "davlat",
     ],
 
     "person": [
         "odam",
-        "kishi"
+        "kishi",
     ],
 
     "people": [
         "odamlar",
-        "kishilar"
+        "kishilar",
     ],
 
     "repeat": [
         "qaytarmoq",
-        "takrorlamoq"
+        "takrorlamoq",
     ],
 
     "conversation": [
         "muloqot",
-        "suhbat"
+        "suhbat",
     ],
 
     "sentence": [
-        "gap"
+        "gap",
     ],
 
     "exercise": [
-        "mashq"
+        "mashq",
     ],
 
     "other": [
-        "boshqa"
+        "boshqa",
     ],
 
     "order": [
-        "tartib"
+        "tartib",
     ],
 
     "partner": [
-        "sherik"
+        "sherik",
     ],
 
     "friend": [
         "do‘st",
         "do'st",
-        "dost"
+        "dost",
     ],
 }
 
 
 # =========================================================
-# EXPECTED ENGLISH SO‘ZNI HAM NORMALIZATSIYA QILISH
-# =========================================================
-
-def english_key(text):
-    return norm(text)
-
-
-# =========================================================
-# BARCHA QABUL QILINADIGAN JAVOBLARNI YIG‘ISH
-# =========================================================
-
-def get_all_options(expected):
-    options = set()
-
-    # Asosiy WORDS tarjimasi
-    options.update(build_options(expected))
-
-    # English so‘zning maxsus aliaslari
-    # Bu funksiya is_correct ichida expected English ekanini
-    # bilish uchun alohida key orqali ishlatiladi.
-
-    return options
-
-
-# =========================================================
-# ASOSIY TEKSHIRUV
+# JAVOBNI TEKSHIRISH
 # =========================================================
 
 def is_correct(user_answer, expected, english_word=None):
-    """
-    Juda yumshoq, lekin nazoratli tekshiruv.
-
-    Qabul qiladi:
-    - katta/kichik harf farqini
-    - o‘ / o' / oʻ / oʼ farqini
-    - g‘ / g' / gʻ farqini
-    - ortiqcha bo‘sh joylarni
-    - qavslarni
-    - vergul/slash variantlarini
-    - sinonim va tabiiy javoblarni
-    """
 
     user = norm(user_answer)
 
     if not user:
         return False
 
-    # 1. Asosiy expected javoblar
+    # Asosiy WORDS ichidagi javoblar
     options = build_options(expected)
 
-    # 2. English so‘z bo‘yicha maxsus aliaslar
+    # English so‘zga tegishli maxsus variantlar
     if english_word:
-        key = english_key(english_word)
+        key = norm(english_word)
 
         if key in ANSWER_ALIASES:
             for alias in ANSWER_ALIASES[key]:
                 options.add(norm(alias))
 
-    # 3. To‘g‘ridan-to‘g‘ri tenglik
-    if user in options:
-        return True
+    return user in options
 
-    return False
+
+# =========================================================
+# FLAG
+# =========================================================
+
+def get_flag(word):
+    key = norm(word)
+
+    return FLAGS.get(key, "")
+
+
+# =========================================================
+# YANGI TEST HOLATI
+# =========================================================
+
+def new_state():
+
+    # 0-149 indekslarni random aralashtiramiz
+    order = list(range(len(WORDS)))
+    random.shuffle(order)
+
+    return {
+        "index": 0,
+        "score": 0,
+
+        # RANDOM TARTIB
+        "order": order,
+
+        # Combo
+        "combo": 0,
+        "best_combo": 0,
+
+        # 10 talik bosqich
+        "round_score": 0,
+        "round_start": 0,
+
+        # Hozirgi savol
+        "current_message_id": None,
+    }
+
+
+# =========================================================
+# XAVFSIZ MESSAGE O‘CHIRISH
+# =========================================================
+
+async def safe_delete(message):
+
+    if not message:
+        return
+
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+
+# =========================================================
+# RENDER UYQUDA QOLMASLIGI UCHUN
+# =========================================================
+
+def keep_render_awake(url):
+
+    def worker():
+
+        while True:
+
+            try:
+                urllib.request.urlopen(
+                    url,
+                    timeout=10
+                )
+
+            except Exception:
+                pass
+
+            time.sleep(600)
+
+    thread = threading.Thread(
+        target=worker,
+        daemon=True
+    )
+
+    thread.start()
+
+
+# =========================================================
+# START
+# =========================================================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    text = (
+        "🇺🇿 <b>English ↔ Uzbek TEST BOT</b>\n\n"
+        "📚 150 ta so‘z\n"
+        "🎲 Har safar RANDOM tartib\n"
+        "🔄 English ↔ Uzbek aralash\n"
+        "🧠 Aqlli javob tekshirish\n\n"
+        "▶️ /test — testni boshlash\n"
+        "🔄 /restart — boshidan boshlash\n"
+        "📊 /score — natijani ko‘rish"
+    )
+
+    await update.message.reply_text(
+        text,
+        parse_mode="HTML"
+    )
+
+
+# =========================================================
+# TESTNI BOSHLASH
+# =========================================================
+
+async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    uid = update.effective_user.id
+
+    state[uid] = new_state()
+
+    await update.message.reply_text(
+        "🎲 <b>150 ta so‘z aralashtirildi!</b>\n"
+        "Har safar tartib boshqacha bo‘ladi.\n\n"
+        "🚀 Test boshlandi!",
+        parse_mode="HTML"
+    )
+
+    await ask(update, context)
+
+
+# =========================================================
+# RESTART
+# =========================================================
+
+async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    await test_command(update, context)
+
+
+# =========================================================
+# SCORE
+# =========================================================
+
+async def score_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    uid = update.effective_user.id
+
+    if uid not in state:
+
+        await update.message.reply_text(
+            "Avval /test buyrug‘ini bosing."
+        )
+
+        return
+
+    s = state[uid]
+
+    total = s["index"]
+
+    if total == 0:
+        accuracy = 0
+    else:
+        accuracy = s["score"] / total * 100
+
+    await update.message.reply_text(
+        f"📊 <b>Natija</b>\n\n"
+        f"🏆 To‘g‘ri: {s['score']}/{total}\n"
+        f"📈 Aniqlik: {accuracy:.1f}%\n"
+        f"🔥 Eng uzun combo: {s['best_combo']}",
+        parse_mode="HTML"
+    )
+
+
+# =========================================================
+# SAVOLNI CHIQARISH
+# =========================================================
+
+async def ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    uid = update.effective_user.id
+
+    if uid not in state:
+        return
+
+    s = state[uid]
+
+    index = s["index"]
+
+    # Test tugagan bo‘lsa
+    if index >= len(WORDS):
+        await finish_test(update, context)
+        return
+
+    # =====================================================
+    # RANDOM INDEX
+    # =====================================================
+
+    real_index = s["order"][index]
+
+    word, uzbek = WORDS[real_index]
+
+    # Yo‘nalishni random tanlaymiz
+    direction = random.choice([
+        "en_to_uz",
+        "uz_to_en"
+    ])
+
+    s["direction"] = direction
+    s["real_index"] = real_index
+
+    # =====================================================
+    # ENGLISH -> UZBEK
+    # =====================================================
+
+    if direction == "en_to_uz":
+
+        flag = get_flag(word)
+
+        flag_text = f"{flag} " if flag else "🇬🇧 "
+
+        question = (
+            f"❓ <b>{index + 1}/150</b>\n\n"
+            f"{flag_text}<b>{word}</b>\n\n"
+            f"🇺🇿 O‘zbekchasini yozing:"
+        )
+
+    # =====================================================
+    # UZBEK -> ENGLISH
+    # =====================================================
+
+    else:
+
+        question = (
+            f"❓ <b>{index + 1}/150</b>\n\n"
+            f"🇺🇿 <b>{uzbek}</b>\n\n"
+            f"🇬🇧 Inglizchasini yozing:"
+        )
+
+    msg = await update.effective_chat.send_message(
+        question,
+        parse_mode="HTML"
+    )
+
+    s["current_message_id"] = msg.message_id
+
+
+# =========================================================
+# JAVOB QABUL QILISH
+# =========================================================
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    uid = update.effective_user.id
+
+    if uid not in state:
+        return
+
+    s = state[uid]
+
+    user_answer = update.message.text.strip()
+
+    index = s["index"]
+
+    if index >= len(WORDS):
+        return
+
+    # RANDOM TANLANGAN SO‘Z
+    real_index = s["order"][index]
+
+    word, uzbek = WORDS[real_index]
+
+    direction = s.get("direction", "en_to_uz")
+
+    # =====================================================
+    # EXPECTED JAVOB
+    # =====================================================
+
+    if direction == "en_to_uz":
+
+        expected = uzbek
+
+    else:
+
+        expected = word
+
+    # =====================================================
+    # TEKSHIRISH
+    # =====================================================
+
+    correct = is_correct(
+        user_answer,
+        expected,
+        english_word=word
+    )
+
+    # =====================================================
+    # TO‘G‘RI
+    # =====================================================
+
+    if correct:
+
+        s["score"] += 1
+        s["round_score"] += 1
+
+        s["combo"] += 1
+
+        if s["combo"] > s["best_combo"]:
+            s["best_combo"] = s["combo"]
+
+        await update.message.reply_text(
+            "✅ <b>To‘g‘ri!</b>",
+            parse_mode="HTML"
+        )
+
+        # Combo
+        if s["combo"] >= 3:
+
+            await update.message.reply_text(
+                f"🔥 <b>COMBO x{s['combo']}!</b>",
+                parse_mode="HTML"
+            )
+
+    # =====================================================
+    # XATO
+    # =====================================================
+
+    else:
+
+        s["combo"] = 0
+
+        await update.message.reply_text(
+            f"❌ <b>Noto‘g‘ri.</b>\n"
+            f"To‘g‘ri javob: <b>{expected}</b>",
+            parse_mode="HTML"
+        )
+
+    # Keyingi savol
+    s["index"] += 1
+
+    # =====================================================
+    # 150 TA SAVOL TUGADI
+    # MUHIM: avval shuni tekshiramiz
+    # =====================================================
+
+    if s["index"] >= len(WORDS):
+
+        await finish_test(update, context)
+
+        return
+
+    # =====================================================
+    # HAR 10 TA SAVOLDAN KEYIN NATIJA
+    # =====================================================
+
+    if s["index"] % ROUND_SIZE == 0:
+
+        await round_result(
+            update,
+            context
+        )
+
+        return
+
+    # Keyingi savol
+    await ask(update, context)
+
+
+# =========================================================
+# 10 TALIK NATIJA
+# =========================================================
+
+async def round_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    uid = update.effective_user.id
+
+    s = state[uid]
+
+    end = s["index"]
+
+    start = end - ROUND_SIZE + 1
+
+    round_number = end // ROUND_SIZE
+
+    total_score = s["score"]
+
+    accuracy = total_score / end * 100
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "➡️ Keyingi 10 ta",
+                callback_data="next_round"
+            )
+        ]
+    ])
+
+    text = (
+        f"📊 <b>{start}–{end}-savollar natijasi</b>\n\n"
+        f"🎯 Bosqich natijasi: "
+        f"<b>{s['round_score']}/10</b>\n"
+        f"🏆 Umumiy natija: "
+        f"<b>{total_score}/{end}</b>\n"
+        f"📈 Aniqlik: "
+        f"<b>{accuracy:.1f}%</b>\n"
+        f"🔥 Eng uzun combo: "
+        f"<b>{s['best_combo']}</b>\n\n"
+        f"➡️ Keyingi 10 ta savolga o‘tish uchun tugmani bosing."
+    )
+
+    # Bosqich score'ini keyingi bosqich uchun nol qilamiz
+    s["round_score"] = 0
+
+    await update.effective_chat.send_message(
+        text,
+        parse_mode="HTML",
+        reply_markup=keyboard
+    )
+
+
+# =========================================================
+# KEYINGI 10 TA
+# =========================================================
+
+async def next_round(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    uid = query.from_user.id
+
+    if uid not in state:
+        return
+
+    # Tugmani olib tashlaymiz
+    try:
+        await query.edit_message_reply_markup(
+            reply_markup=None
+        )
+    except Exception:
+        pass
+
+    await ask_from_callback(
+        query,
+        context
+    )
+
+
+# =========================================================
+# CALLBACK ORQALI SAVOL
+# =========================================================
+
+async def ask_from_callback(query, context):
+
+    uid = query.from_user.id
+
+    if uid not in state:
+        return
+
+    s = state[uid]
+
+    index = s["index"]
+
+    if index >= len(WORDS):
+
+        await finish_test_from_callback(
+            query,
+            context
+        )
+
+        return
+
+    real_index = s["order"][index]
+
+    word, uzbek = WORDS[real_index]
+
+    direction = random.choice([
+        "en_to_uz",
+        "uz_to_en"
+    ])
+
+    s["direction"] = direction
+    s["real_index"] = real_index
+
+    if direction == "en_to_uz":
+
+        flag = get_flag(word)
+
+        flag_text = f"{flag} " if flag else "🇬🇧 "
+
+        question = (
+            f"❓ <b>{index + 1}/150</b>\n\n"
+            f"{flag_text}<b>{word}</b>\n\n"
+            f"🇺🇿 O‘zbekchasini yozing:"
+        )
+
+    else:
+
+        question = (
+            f"❓ <b>{index + 1}/150</b>\n\n"
+            f"🇺🇿 <b>{uzbek}</b>\n\n"
+            f"🇬🇧 Inglizchasini yozing:"
+        )
+
+    msg = await query.message.chat.send_message(
+        question,
+        parse_mode="HTML"
+    )
+
+    s["current_message_id"] = msg.message_id
+
+
+# =========================================================
+# TESTNI YAKUNLASH
+# =========================================================
+
+async def finish_test(update, context):
+
+    uid = update.effective_user.id
+
+    if uid not in state:
+        return
+
+    s = state[uid]
+
+    score = s["score"]
+
+    accuracy = score / len(WORDS) * 100
+
+    if accuracy >= 90:
+        level = "🏆 Ajoyib!"
+    elif accuracy >= 75:
+        level = "🔥 Juda yaxshi!"
+    elif accuracy >= 60:
+        level = "👍 Yaxshi!"
+    else:
+        level = "💪 Yana mashq qilish kerak!"
+
+    text = (
+        "🎉 <b>TEST TUGADI!</b>\n\n"
+        f"🏆 Natijangiz: <b>{score}/150</b>\n"
+        f"📈 Aniqlik: <b>{accuracy:.1f}%</b>\n"
+        f"🔥 Eng uzun combo: <b>{s['best_combo']}</b>\n\n"
+        f"{level}\n\n"
+        "🔄 Yana random test boshlash uchun /test bosing."
+    )
+
+    await update.effective_chat.send_message(
+        text,
+        parse_mode="HTML"
+    )
+
+
+# =========================================================
+# CALLBACK ORQALI YAKUNLASH
+# =========================================================
+
+async def finish_test_from_callback(query, context):
+
+    uid = query.from_user.id
+
+    if uid not in state:
+        return
+
+    s = state[uid]
+
+    score = s["score"]
+
+    accuracy = score / len(WORDS) * 100
+
+    if accuracy >= 90:
+        level = "🏆 Ajoyib
