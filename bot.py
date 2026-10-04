@@ -6,23 +6,23 @@ import threading
 import time
 import urllib.request
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     ContextTypes,
     filters,
 )
 
-# =========================================================
+
+# ============================================================
 # 150 TA SO'Z
-# Eski 111 ta + yangi 39 ta
-# =========================================================
+# ============================================================
 
 WORDS = [
-
-    # 1-111
+    # 1-111 eski so'zlar
     ("Argentina", "argentina"),
     ("Brazil", "Braziliya"),
     ("Canada", "Kanada"),
@@ -36,7 +36,6 @@ WORDS = [
     ("The UK", "Qo‘shma qirolliklar (Buyuk Britaniya)"),
     ("The USA (The US)", "Amerika Qo‘shma Shtatlari"),
     ("Turkey", "Turkiya"),
-
     ("Flag", "bayroq"),
     ("Country", "mamlakat"),
     ("Match", "tanlamoq"),
@@ -93,7 +92,6 @@ WORDS = [
     ("My family name (surname) is ...", "Mening familiyam ..."),
     ("Where are you from?", "Qayerdansiz?"),
     ("I’m from ...", "Men ...daman"),
-
     ("Football player", "futbolchi"),
     ("Doctor", "shifokor"),
     ("School teacher", "ustoz / o‘qituvchi"),
@@ -137,7 +135,7 @@ WORDS = [
     ("Late", "kech qolmoq"),
     ("Today", "bugun"),
 
-    # 112-150
+    # 112-150 yangi so'zlar
     ("About", "haqida"),
     ("Father", "ota, dada"),
     ("Mother", "ona"),
@@ -175,160 +173,10 @@ WORDS = [
     ("How much are these?", "nechi pul bular?"),
     ("Can I pay by card?", "kartadan to‘lasam bo‘ladimi?"),
     ("Here you are", "mana, marhamat"),
-    ("Here is your change", "mana, qaytimi"),
-    ("Cash or card?", "naqd pulmi, yoki karta?"),
+    ("Here is your change", "qaytimingiz, marhamat"),
+    ("Cash or card?", "naqd pulmi yoki karta?"),
 ]
 
-assert len(WORDS) == 150, f"WORDS soni 150 emas: {len(WORDS)}"
 
-
-# =========================================================
-# BAYROQLAR
-# =========================================================
-
-FLAGS = {
-    "Argentina": "🇦🇷",
-    "Brazil": "🇧🇷",
-    "Canada": "🇨🇦",
-    "Italy": "🇮🇹",
-    "Japan": "🇯🇵",
-    "Mexico": "🇲🇽",
-    "Poland": "🇵🇱",
-    "Spain": "🇪🇸",
-    "Thailand": "🇹🇭",
-    "Great Britain": "🇬🇧",
-    "The UK": "🇬🇧",
-    "The USA (The US)": "🇺🇸",
-    "Turkey": "🇹🇷",
-    "Thai": "🇹🇭",
-    "British": "🇬🇧",
-    "Polish": "🇵🇱",
-    "Spanish": "🇪🇸",
-    "Turkish": "🇹🇷",
-    "Mexican": "🇲🇽",
-    "Japanese": "🇯🇵",
-    "Italian": "🇮🇹",
-    "American": "🇺🇸",
-    "Canadian": "🇨🇦",
-    "Brazilian": "🇧🇷",
-    "Argentinian": "🇦🇷",
-}
-
-
-# =========================================================
-# TEST SOZLAMALARI
-# =========================================================
-
-ROUND_SIZE = 10
-
-# Har bir foydalanuvchining holati
-state = {}
-
-
-# =========================================================
-# NORMALIZATSIYA
-# =========================================================
-
-def norm(text):
-    """
-    Javoblarni juda yumshoq va aqlli tekshiradi.
-
-    Katta/kichik harf farq qilmaydi.
-    Apostrof turlari farq qilmaydi.
-    Ortiqcha bo'sh joylar farq qilmaydi.
-    Nuqta, !, ? oxirida bo'lsa hisobga olinmaydi.
-    """
-
-    if text is None:
-        return ""
-
-    text = str(text)
-
-    # Unicode
-    text = unicodedata.normalize("NFKC", text)
-
-    # Kichik harf
-    text = text.lower()
-
-    # Har xil apostroflarni bir xil qilish
-    apostrophes = "’‘ʻʼ`´ʹʾ"
-    for ch in apostrophes:
-        text = text.replace(ch, "'")
-
-    # Dashlarni oddiy bo'sh joyga yaqinlashtirish
-    text = text.replace("–", "-")
-    text = text.replace("—", "-")
-
-    # Bir nechta bo'sh joy -> bitta
-    text = re.sub(r"\s+", " ", text)
-
-    # Boshi/oxirini tozalash
-    text = text.strip()
-
-    # Oxiridagi belgilarni olib tashlash
-    text = text.strip(" .!?,")
-
-    return text
-
-
-# =========================================================
-# MAXSUS QABUL QILINADIGAN JAVOBLAR
-# =========================================================
-
-EXTRA = {
-
-    # Work
-    "work": [
-        "ishlamoq",
-        "ish",
-        "mehnat qilmoq",
-        "mehnat",
-    ],
-
-    # Help
-    "help": [
-        "yordam bermoq",
-        "yordam",
-    ],
-
-    # Father
-    "father": [
-        "ota",
-        "dada",
-    ],
-
-    # Mother
-    "mother": [
-        "ona",
-        "oyi",
-    ],
-
-    # Wife
-    "wife": [
-        "xotin",
-        "hotin",
-        "ayol",
-    ],
-
-    # Husband
-    "husband": [
-        "eri",
-        "er",
-    ],
-
-    # Nice to meet you
-    "nice to meet you": [
-        "tanishganimdan xursandman",
-        "tanishganimdan hursandman",
-    ],
-
-    # Conference
-    "conference": [
-        "konferensiya",
-        "konferensia",
-    ],
-
-    # Cousin
-    "cousin(e)": [
-        "amakivachcha",
-        "xolav
+# 150 ta ekanini tekshirish
+assert len(WORDS) == 150, f"WORDS 150 ta bo‘lishi kerak, ho
