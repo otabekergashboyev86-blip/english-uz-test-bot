@@ -17,9 +17,11 @@ from telegram.ext import (
     filters,
 )
 
+
 # =========================================================
-# 111 TA SO'Z — O'ZGARTIRILMAGAN
+# 111 TA SO'Z
 # =========================================================
+
 WORDS = [
     ("Argentina", "argentina"),
     ("Brazil", "Braziliya"),
@@ -136,9 +138,11 @@ WORDS = [
 
 assert len(WORDS) == 111
 
+
 # =========================================================
-# FLAGS
+# BAYROQLAR
 # =========================================================
+
 FLAGS = {
     "Argentina": "🇦🇷",
     "Brazil": "🇧🇷",
@@ -155,6 +159,7 @@ FLAGS = {
     "Turkey": "🇹🇷",
 }
 
+
 ROUND_SIZE = 10
 TOURNAMENT_TIME = 10
 
@@ -163,8 +168,9 @@ group_sessions = {}
 
 
 # =========================================================
-# NORMALIZATION
+# YORDAMCHI FUNKSIYALAR
 # =========================================================
+
 def norm(s: str) -> str:
     s = unicodedata.normalize("NFKC", str(s)).lower().strip()
 
@@ -181,10 +187,12 @@ def build_options(expected: str):
 
     options = {norm(expected)}
 
+    # Vergul yoki / orqali berilgan variantlar
     for part in re.split(r"\s*(?:,|/)\s*", expected):
         if part.strip():
             options.add(norm(part))
 
+    # Qavs ichidagi variantlarni ham qabul qilish
     match = re.search(r"([^()]*)", expected)
 
     if match:
@@ -205,28 +213,20 @@ def build_options(expected: str):
 def is_correct(user_answer: str, expected: str) -> bool:
     options = build_options(expected)
 
+    # "yordam" ham "yordam bermoq" uchun to'g'ri
     if norm(expected) == "yordam bermoq":
         options.add("yordam")
 
     return norm(user_answer) in options
 
 
-# =========================================================
-# HELPERS
-# =========================================================
 def is_group(update: Update) -> bool:
     chat = update.effective_chat
-
-    return bool(
-        chat and chat.type in ("group", "supergroup")
-    )
+    return bool(chat and chat.type in ("group", "supergroup"))
 
 
 def get_key(update: Update):
-    return (
-        update.effective_chat.id,
-        update.effective_user.id,
-    )
+    return (update.effective_chat.id, update.effective_user.id)
 
 
 def new_state():
@@ -264,18 +264,16 @@ async def safe_delete(bot, chat_id, message_id):
 # =========================================================
 # RENDER KEEP ALIVE
 # =========================================================
+
 def keep_render_awake(url: str):
 
     def ping_loop():
-
         while True:
-
             try:
                 urllib.request.urlopen(
                     url,
                     timeout=20
                 ).close()
-
             except Exception:
                 pass
 
@@ -290,10 +288,8 @@ def keep_render_awake(url: str):
 # =========================================================
 # START
 # =========================================================
-async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "👋 Assalomu alaykum!\n\n"
@@ -308,33 +304,458 @@ async def start(
 
 
 # =========================================================
-# /TEST
+# GROUP SESSION YARATISH
 # =========================================================
-async def test(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
 
-    key = get_key(update)
+def create_group_session(chat_id):
 
-    # =====================================================
-    # GROUP TOURNAMENT
-    # =====================================================
+    session = {
+        "players": {},
+
+        "all_finished": False,
+
+        # Turnir holati
+        "running": False,
+        "question_index": 0,
+        "question_message_id": None,
+        "expected": "",
+        "direction": "",
+        "answered": set(),
+
+        # Savol vaqti
+        "question_started": 0,
+        "question_deadline": 0,
+
+        # Tasklar
+        "timer_task": None,
+        "lobby_task": None,
+
+        # Himoya
+        "question_token": 0,
+
+        # Ro'yxatdan o'tish
+        "lobby_started": False,
+    }
+
+    group_sessions[chat_id] = session
+
+    return session
+
+
+async def cancel_task(task):
+    if task:
+        try:
+            task.cancel()
+            await asyncio.gather(
+                task,
+                return_exceptions=True
+            )
+        except Exception:
+            pass
+
+
+# =========================================================
+# TEST
+# =========================================================
+
+async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not update.message:
+        return
+
+    # -----------------------------------------------------
+    # GROUP
+    # -----------------------------------------------------
+
     if is_group(update):
 
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
 
-        session = group_sessions.setdefault(
+        session = group_sessions.get(chat_id)
+
+        # Oldingi turnir tugagan bo'lsa yangi turnir
+        if session and session.get("all_finished"):
+            await cancel_task(session.get("timer_task"))
+            await cancel_task(session.get("lobby_task"))
+
+            group_sessions.pop(chat_id, None)
+            session = None
+
+        # Turnir allaqachon boshlangan
+        if session and session.get("running"):
+            await update.message.reply_text(
+                "⚠️ Turnir allaqachon boshlangan.\n\n"
+                "Keyingi turnirda qatnashish uchun kuting."
+            )
+            return
+
+        if session is None:
+            session = create_group_session(chat_id)
+
+        # Shu odam allaqachon ro'yxatda
+        if user_id in session["players"]:
+            nickname = session["players"][user_id]["nickname"]
+
+            await update.message.reply_text(
+                f"✅ {nickname}, siz allaqachon ro‘yxatdan o‘tgansiz."
+            )
+            return
+
+        key = get_key(update)
+
+        state[key] = new_state()
+        state[key]["waiting_nickname"] = True
+
+        await update.message.reply_text(
+            "👤 Ismingizni yozing.\n\n"
+            "Masalan: Otabek yoki Kumush"
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # PRIVATE
+    # -----------------------------------------------------
+
+    key = get_key(update)
+
+    state[key] = new_state()
+
+    await update.message.reply_text(
+        "🚀 Test boshlandi!\n\n"
+        f"📚 Jami: {len(WORDS)} ta so‘z\n"
+        f"📝 Har bosqich: {ROUND_SIZE} ta savol"
+    )
+
+    await ask(update, context)
+
+
+# =========================================================
+# RESTART
+# =========================================================
+
+async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not update.message:
+        return
+
+    if is_group(update):
+
+        chat_id = update.effective_chat.id
+
+        session = group_sessions.get(chat_id)
+
+        if session and session.get("running"):
+            await update.message.reply_text(
+                "⚠️ Turnir davom etmoqda.\n\n"
+                "Turnir tugagach yangi turnir boshlashingiz mumkin."
+            )
+            return
+
+        key = get_key(update)
+
+        state[key] = new_state()
+        state[key]["waiting_nickname"] = True
+
+        await update.message.reply_text(
+            "🔄 Test qayta boshlandi!\n\n"
+            "👤 Ismingizni yozing.\n\n"
+            "Masalan: Otabek yoki Kumush"
+        )
+
+        return
+
+    key = get_key(update)
+
+    state[key] = new_state()
+
+    await update.message.reply_text(
+        "🔄 Test qayta boshlandi!\n\n"
+        "🚀 Yangi test boshlanmoqda..."
+    )
+
+    await ask(update, context)
+
+
+# =========================================================
+# NICKNAME
+# =========================================================
+
+async def register_nickname(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    nickname: str
+):
+
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    key = get_key(update)
+
+    nickname = nickname.strip()
+
+    if not nickname:
+        return
+
+    if len(nickname) > 50:
+        await update.message.reply_text(
+            "❌ Ism juda uzun.\n"
+            "50 ta belgidan oshmasin."
+        )
+        return
+
+    session = group_sessions.get(chat_id)
+
+    if session is None:
+        session = create_group_session(chat_id)
+
+    if session.get("running"):
+        await update.message.reply_text(
+            "⚠️ Turnir allaqachon boshlangan."
+        )
+        return
+
+    # Takroriy user
+    if user_id in session["players"]:
+        await update.message.reply_text(
+            "✅ Siz allaqachon ro‘yxatdan o‘tgansiz."
+        )
+        return
+
+    # User state
+    if key not in state:
+        state[key] = new_state()
+
+    state[key]["waiting_nickname"] = False
+    state[key]["nickname"] = nickname
+
+    # Player
+    session["players"][user_id] = {
+        "nickname": nickname,
+        "state_key": key,
+        "finished": False,
+
+        "score": 0,
+        "correct": 0,
+        "questions": 0,
+
+        "combo": 0,
+        "longest_combo": 0,
+
+        "round_score": 0,
+        "round_wrong": [],
+
+        "answered": False,
+    }
+
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
+    count = len(session["players"])
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=(
+            f"✅ {nickname} ro‘yxatdan o‘tdi!\n\n"
+            f"👥 Ishtirokchilar: {count} ta\n\n"
+            "🏆 TURNIR\n"
+            "Hamma uchun bir xil savol beriladi.\n"
+            "Har savolga 10 soniya vaqt beriladi.\n\n"
+            "⏳ Ishtirokchilar qo‘shilmoqda..."
+        )
+    )
+
+    # Birinchi odam ro'yxatdan o'tganda lobby timer boshlanadi
+    if not session.get("lobby_started"):
+
+        session["lobby_started"] = True
+
+        session["lobby_task"] = asyncio.create_task(
+            group_lobby_timer(
+                context.application,
+                chat_id
+            )
+        )
+
+
+# =========================================================
+# LOBBY TIMER
+# =========================================================
+
+async def group_lobby_timer(
+    application: Application,
+    chat_id: int
+):
+
+    try:
+
+        await asyncio.sleep(10)
+
+        session = group_sessions.get(chat_id)
+
+        if not session:
+            return
+
+        if session.get("running"):
+            return
+
+        if session.get("all_finished"):
+            return
+
+        if not session["players"]:
+            return
+
+        session["running"] = True
+        session["question_index"] = 0
+        session["all_finished"] = False
+
+        await application.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                "🏆 TURNIR BOSHLANDI!\n\n"
+                f"👥 Ishtirokchilar: {len(session['players'])} ta\n"
+                "🎯 Hammaga bitta xil savol beriladi.\n"
+                "⏱️ Har savol: 10 soniya."
+            )
+        )
+
+        await asyncio.sleep(1)
+
+        await send_group_question(
+            application,
+            chat_id
+        )
+
+    except asyncio.CancelledError:
+        pass
+
+    except Exception:
+        pass
+
+
+# =========================================================
+# GROUP QUESTION
+# =========================================================
+
+def build_group_question(
+    index: int,
+    direction: str
+):
+
+    word, uzbek = WORDS[index]
+
+    flag = FLAGS.get(word, "")
+
+    if direction == "en_to_uz":
+
+        question = (
+            f"🏆 TURNIR — {index + 1}/{len(WORDS)}\n\n"
+            f"⏱️ {TOURNAMENT_TIME} soniya\n\n"
+            f"🇬🇧 {flag} {word}\n\n"
+            "🇺🇿 O‘zbekchasini yozing:"
+        )
+
+    else:
+
+        question = (
+            f"🏆 TURNIR — {index + 1}/{len(WORDS)}\n\n"
+            f"⏱️ {TOURNAMENT_TIME} soniya\n\n"
+            f"🇺🇿 {uzbek}\n\n"
+            f"🇬🇧 Inglizchasini yozing:"
+        )
+
+    return question
+
+
+async def send_group_question(
+    application: Application,
+    chat_id: int
+):
+
+    session = group_sessions.get(chat_id)
+
+    if not session:
+        return
+
+    if not session.get("running"):
+        return
+
+    index = session["question_index"]
+
+    if index >= len(WORDS):
+        await finish_group_tournament(
+            application,
+            chat_id
+        )
+        return
+
+    # Old timer
+    await cancel_task(session.get("timer_task"))
+
+    direction = random.choice([
+        "en_to_uz",
+        "uz_to_en"
+    ])
+
+    word, uzbek = WORDS[index]
+
+    if direction == "en_to_uz":
+        expected = uzbek
+    else:
+        expected = word
+
+    session["direction"] = direction
+    session["expected"] = expected
+
+    session["answered"] = set()
+
+    session["question_token"] += 1
+    token = session["question_token"]
+
+    # Har bir player uchun yangi savol
+    for player in session["players"].values():
+        player["answered"] = False
+
+    question_text = build_group_question(
+        index,
+        direction
+    )
+
+    message = await application.bot.send_message(
+        chat_id=chat_id,
+        text=question_text
+    )
+
+    session["question_message_id"] = message.message_id
+
+    session["question_started"] = time.time()
+    session["question_deadline"] = (
+        session["question_started"] + TOURNAMENT_TIME
+    )
+
+    session["timer_task"] = asyncio.create_task(
+        group_question_timer(
+            application,
             chat_id,
-            {
-                "players": {},
-                "all_finished": False,
-                "started": False,
-                "index": 0,
-                "question_message_id": None,
-                "expected": "",
-                "direction": "",
-                "answered": set(),
-                "question_number": 0,
-                "
+            token
+        )
+    )
+
+
+# =========================================================
+# GROUP QUESTION TIMER
+# =========================================================
+
+async def group_question_timer(
+    application: Application,
+    chat_id: int,
+    token: int
+):
+
+    try:
+
+        await asyncio.sleep(TOURNAMENT_TIME)
+
+        session = group_sessions.get
