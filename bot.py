@@ -5,7 +5,6 @@ import unicodedata
 import threading
 import time
 import urllib.request
-import asyncio
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -19,15 +18,12 @@ from telegram.ext import (
 
 
 # =========================================================
-# 150 TA SO'Z
-# OLDINGI 111 TA + YANGI 39 TA
+# 150 TA ENGLISH ↔ UZBEK SO'ZLAR
+# Eski 111 ta so'z saqlangan.
 # =========================================================
 
 WORDS = [
-    # =========================
-    # 1–111 — OLDINGI SO'ZLAR
-    # =========================
-
+    # 1-13
     ("Argentina", "argentina"),
     ("Brazil", "Braziliya"),
     ("Canada", "Kanada"),
@@ -42,6 +38,7 @@ WORDS = [
     ("The USA (The US)", "Amerika Qo‘shma Shtatlari"),
     ("Turkey", "Turkiya"),
 
+    # 14-30
     ("Flag", "bayroq"),
     ("Country", "mamlakat"),
     ("Match", "tanlamoq"),
@@ -59,6 +56,8 @@ WORDS = [
     ("Help", "yordam bermoq"),
     ("Exercise", "mashq"),
     ("With", "bilan"),
+
+    # 31-50
     ("Complete", "tugatmoq"),
     ("Other", "boshqa"),
     ("Map", "xarita"),
@@ -79,6 +78,8 @@ WORDS = [
     ("The same", "bir xil"),
     ("Famous", "mashhur"),
     ("Some", "ba’zi, bir nechta"),
+
+    # 51-70
     ("True", "to‘g‘ri"),
     ("False", "noto‘g‘ri"),
     ("Word", "so‘z"),
@@ -98,8 +99,9 @@ WORDS = [
     ("My family name (surname) is ...", "Mening familiyam ..."),
     ("Where are you from?", "Qayerdansiz?"),
     ("I’m from ...", "Men ...daman"),
-
     ("Football player", "futbolchi"),
+
+    # 71-90
     ("Doctor", "shifokor"),
     ("School teacher", "ustoz / o‘qituvchi"),
     ("Pilot", "uchuvchi"),
@@ -113,7 +115,6 @@ WORDS = [
     ("Team", "jamoa"),
     ("Manager", "menejer"),
     ("Nice", "yaxshi"),
-
     ("Thai", "tailandlik"),
     ("British", "Britaniyalik"),
     ("Polish", "polshalik"),
@@ -121,12 +122,13 @@ WORDS = [
     ("Turkish", "turkiyalik"),
     ("Mexican", "meksikalik"),
     ("Japanese", "yaponiyalik"),
+
+    # 91-111
     ("Italian", "italiyalik"),
     ("American", "amerikalik"),
     ("Canadian", "kanadalik"),
     ("Brazilian", "braziliyalik"),
     ("Argentinian", "argentinalik"),
-
     ("University", "universitet"),
     ("Friend", "do‘st"),
     ("All over the world", "dunyo bo‘ylab"),
@@ -144,9 +146,9 @@ WORDS = [
     ("Late", "kech qolmoq"),
     ("Today", "bugun"),
 
-    # =========================
-    # 112–150 — YANGI SO'ZLAR
-    # =========================
+    # =====================================================
+    # YANGI 112-150
+    # =====================================================
 
     ("About", "haqida"),
     ("Father", "ota, dada"),
@@ -161,11 +163,11 @@ WORDS = [
     ("Uncle", "amaki, tog‘a"),
     ("Aunt", "xola, amma"),
     ("Cousin(e)", "amakivachcha, xolavachcha"),
-    ("Nephew", "jiyan (o‘g‘il bola)"),
-    ("Niece", "jiyan (qiz bola)"),
+    ("Nephew", "jiyan (o‘g‘il)"),
+    ("Niece", "jiyan (qiz)"),
     ("Husband", "eri"),
     ("Wife", "xotin"),
-    ("Desk", "parta"),
+    ("Deck", "parrak"),
     ("Table", "stol"),
     ("Chair", "stul"),
     ("Key", "kalit"),
@@ -182,15 +184,14 @@ WORDS = [
     ("How many", "nechta"),
     ("How much", "qancha"),
     ("How much is this?", "nechi pul bu?"),
-    ("How much are these?", "nechi pul bo‘ladi?"),
+    ("How much are these?", "nechi pul bular?"),
     ("Can I pay by card?", "kartadan to‘lasam bo‘ladimi?"),
     ("Here you are", "mana, marhamat"),
-    ("Here is your change", "mana, qaytimingiz"),
-    ("Cash or card?", "naqd pulmi yoki karta?"),
+    ("Here is your change", "o‘tman, qaytirmanga"),
+    ("Cash or card?", "naqd pulmi, yoki karta?"),
 ]
 
-
-assert len(WORDS) == 150
+assert len(WORDS) == 150, f"WORDS 150 ta emas: {len(WORDS)} ta"
 
 
 # =========================================================
@@ -215,248 +216,266 @@ FLAGS = {
 
 
 ROUND_SIZE = 10
-TOURNAMENT_SECONDS = 10
 
-# Private test
+# Har bir foydalanuvchi uchun alohida holat
 state = {}
-
-# Guruh turnirlari
-group_sessions = {}
 
 
 # =========================================================
-# JAVOBNI TEKSHIRISH
+# JAVOBNI NORMALIZATSIYA QILISH
 # =========================================================
 
 def norm(s: str) -> str:
     """
-    Javoblarni juda yumshoq tekshiradi.
+    Javoblarni juda qulay tekshiradi.
 
-    1. Katta/kichik harf farqi yo‘q.
-    2. x va h bir xil hisoblanadi.
-    3. o‘ / o' / ʻ / ʼ va boshqa apostroflar bir xil.
-    4. Ortiqcha bo‘sh joylar farq qilmaydi.
-    5. Oxiridagi . ! ? farq qilmaydi.
+    Masalan:
+    o‘qimoq
+    oʻqimoq
+    o'qimoq
+    O‘QIMOQ
+
+    hammasi bir xil deb olinadi.
     """
 
-    s = unicodedata.normalize(
-        "NFKC",
-        str(s)
-    ).casefold().strip()
+    s = unicodedata.normalize("NFKC", str(s))
+    s = s.lower().strip()
 
-    # Apostrof variantlari
+    # Turli apostroflarni bir xil qilish
     for ch in [
-        "’", "‘", "ʻ", "ʼ",
-        "`", "´", "′", "＇"
+        "’", "‘", "ʻ", "ʼ", "`", "´",
+        "′", "＇", "ʹ", "ˈ"
     ]:
         s = s.replace(ch, "'")
 
-    # X va H bir xil
-    s = s.replace("x", "h")
+    # "hursand" va "xursand"ni bir xil qabul qilish
+    s = s.replace("hursand", "xursand")
 
-    # Har xil tirelar
-    for ch in [
-        "–", "—", "−", "-"
-    ]:
-        s = s.replace(ch, "-")
+    # Ortiqcha bo'shliqlar
+    s = re.sub(r"\s+", " ", s)
 
-    # Ortiqcha bo‘sh joy
-    s = re.sub(
-        r"\s+",
-        " ",
-        s
-    )
+    # Oxiridagi belgilarni olib tashlash
+    s = s.strip(" .!?,'\"")
 
-    # Vergul/slash atrofidagi bo‘sh joy
-    s = re.sub(
-        r"\s*,\s*",
-        ",",
-        s
-    )
-
-    s = re.sub(
-        r"\s*/\s*",
-        "/",
-        s
-    )
-
-    return s.strip(" .!?")
+    return s
 
 
 def build_options(expected: str):
+    """
+    Kutilgan javobdan barcha mumkin bo'lgan variantlarni chiqaradi.
+    """
+
     expected = str(expected).strip()
 
-    options = {
-        norm(expected)
-    }
+    options = set()
 
-    # Vergul va / orqali berilgan variantlar
-    for part in re.split(
-        r"\s*(?:,|/)\s*",
-        expected
-    ):
+    # Asosiy javob
+    options.add(norm(expected))
+
+    # Vergul yoki / bilan ajratilgan javoblar
+    parts = re.split(r"\s*(?:,|/)\s*", expected)
+
+    for part in parts:
         part = part.strip()
 
         if part:
-            options.add(
-                norm(part)
-            )
+            options.add(norm(part))
 
-    # Qavs ichidagi variantlar
-    while True:
+    # Qavs ichidagi variantlarni ham qabul qilish
+    # Masalan:
+    # The USA (The US)
+    # My family name (surname) is ...
+    match = re.search(r"\(([^()]*)\)", expected)
 
-        match = re.search(
-            r"([^()]*)",
-            expected
-        )
-
-        if not match:
-            break
-
-        before = expected[
-            :match.start()
-        ].strip()
-
+    if match:
+        before = expected[:match.start()].strip()
         inside = match.group(1).strip()
-
-        after = expected[
-            match.end():
-        ].strip()
+        after = expected[match.end():].strip()
 
         if before or after:
-
             options.add(
-                norm(
-                    f"{before} {after}".strip()
-                )
+                norm(f"{before} {after}".strip())
             )
 
-            options.add(
-                norm(
-                    f"{before} {inside} {after}".strip()
+            if inside:
+                options.add(
+                    norm(f"{before} {inside} {after}".strip())
                 )
-            )
 
         if inside:
-            options.add(
-                norm(inside)
-            )
-
-        expected = (
-            f"{before} {after}"
-        ).strip()
-
-    # Maxsus variant
-    if norm(expected) == "yordam bermoq":
-        options.add("yordam")
+            options.add(norm(inside))
 
     return options
 
 
-def is_correct(
-    user_answer: str,
-    expected: str
-) -> bool:
+def is_correct(user_answer: str, expected: str) -> bool:
+    """
+    Aqlli javob tekshirish.
+    """
 
-    return (
-        norm(user_answer)
-        in build_options(expected)
-    )
+    user = norm(user_answer)
+    options = build_options(expected)
 
+    # -----------------------------------------------------
+    # Maxsus sinonimlar / qo'shimcha qabul qilinadigan javoblar
+    # -----------------------------------------------------
 
-# =========================================================
-# YORDAMCHI FUNKSIYALAR
-# =========================================================
+    EXTRA = {
 
-def is_group(update: Update) -> bool:
+        # Oldingi so'zlar
+        "yordam bermoq": {
+            "yordam",
+            "yordam bermoq",
+        },
 
-    chat = update.effective_chat
+        "tanishganimdan xursandman": {
+            "tanishganimdan xursandman",
+            "tanishganimdan hursandman",
+        },
 
-    return bool(
-        chat
-        and chat.type in (
-            "group",
-            "supergroup"
+        "konferensiya": {
+            "konferensiya",
+        },
+
+        # Yangi so'zlar
+        "ota, dada": {
+            "ota",
+            "dada",
+        },
+
+        "ota": {
+            "ota",
+            "dada",
+        },
+
+        "eri": {
+            "eri",
+            "er",
+        },
+
+        "xotin": {
+            "xotin",
+            "rafiqa",
+        },
+
+        "bobo": {
+            "bobo",
+        },
+
+        "buvi": {
+            "buvi",
+        },
+
+        "ona": {
+            "ona",
+        },
+
+        "ota-ona": {
+            "ota-ona",
+            "ota ona",
+        },
+
+        "amaki, tog‘a": {
+            "amaki",
+            "toga",
+            "tog'a",
+            "tog‘a",
+        },
+
+        "xola, amma": {
+            "xola",
+            "amma",
+        },
+
+        "amakivachcha, xolavachcha": {
+            "amakivachcha",
+            "xolavachcha",
+        },
+
+        "nechi marta, qancha tez-tez": {
+            "nechi marta",
+            "qancha tez-tez",
+            "qancha tez tez",
+        },
+
+        "kartadan to‘lasam bo‘ladimi?": {
+            "kartadan to‘lasam bo‘ladimi",
+            "kartadan to'lasam bo'ladimi",
+            "kartadan tolasam boladimi",
+        },
+
+        "naqd pulmi, yoki karta?": {
+            "naqd pulmi",
+            "yoki karta",
+            "naqd pulmi yoki karta",
+            "naqd pulmi, yoki karta",
+        },
+    }
+
+    expected_norm = norm(expected)
+
+    if expected_norm in EXTRA:
+        options.update(
+            norm(x) for x in EXTRA[expected_norm]
         )
-    )
+
+    return user in options
 
 
-def get_key(update: Update):
+# =========================================================
+# BAYROQNI ANIQLASH
+# =========================================================
 
-    return (
-        update.effective_chat.id,
-        update.effective_user.id
-    )
+def get_flag(word: str) -> str:
+    return FLAGS.get(word, "")
 
+
+# =========================================================
+# YANGI USER STATE
+# =========================================================
 
 def new_state():
-
     return {
         "index": 0,
         "score": 0,
+
         "combo": 0,
         "longest_combo": 0,
+
         "round_score": 0,
         "round_wrong": [],
+
         "rounds": 0,
+
         "expected": "",
         "direction": "",
+
         "waiting_next_round": False,
-        "waiting_nickname": False,
-        "nickname": "",
         "finished": False,
+
         "question_message_id": None,
     }
 
 
-def new_group_session():
+# =========================================================
+# XAVFSIZ O'CHIRISH
+# =========================================================
 
-    return {
-        "players": {},
-
-        "running": False,
-        "all_finished": False,
-
-        "question_index": 0,
-
-        "question_message_id": None,
-
-        "expected": "",
-        "direction": "",
-
-        "answered": set(),
-
-        "question_started_at": 0.0,
-        "question_deadline": 0.0,
-
-        "question_task": None,
-
-        "lobby_message_id": None,
-    }
-
-
-async def safe_delete(
-    bot,
-    chat_id,
-    message_id
-):
-
+async def safe_delete(bot, chat_id, message_id):
     if not message_id:
         return
 
     try:
-
         await bot.delete_message(
             chat_id=chat_id,
-            message_id=message_id
+            message_id=message_id,
         )
-
     except Exception:
         pass
 
 
 # =========================================================
-# RENDER UYQUG‘ON
+# RENDER UYQUMASLIGINI KAMAYTIRISH
 # =========================================================
 
 def keep_render_awake(url: str):
@@ -466,7 +485,6 @@ def keep_render_awake(url: str):
         while True:
 
             try:
-
                 urllib.request.urlopen(
                     url,
                     timeout=20
@@ -484,13 +502,16 @@ def keep_render_awake(url: str):
 
 
 # =========================================================
-# START
+# /START
 # =========================================================
 
 async def start(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+
+    if not update.message:
+        return
 
     await update.message.reply_text(
 
@@ -502,134 +523,86 @@ async def start(
         f"📝 Har bosqich: {ROUND_SIZE} ta savol\n\n"
 
         "Buyruqlar:\n"
-
         "/test — testni boshlash\n"
         "/restart — testni qayta boshlash\n"
-        "/score — natijani ko‘rish\n"
-        "/stop_tournament — guruh turnirini to‘xtatish"
+        "/score — natijani ko‘rish"
+
     )
 
 
 # =========================================================
-# TURNIR LOBBYSI
+# SAVOLNI BERISH
 # =========================================================
 
-def lobby_keyboard():
+async def ask(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
-    return InlineKeyboardMarkup([
+    key = (
+        update.effective_chat.id,
+        update.effective_user.id,
+    )
 
-        [
-            InlineKeyboardButton(
-                "🏁 TURNIRGA QO‘SHILISH",
-                callback_data="join_tournament"
-            )
-        ],
+    s = state.get(key)
 
-        [
-            InlineKeyboardButton(
-                "🚀 TURNIRNI BOSHLASH",
-                callback_data="start_tournament"
-            )
-        ]
+    if not s:
+        return
 
+    if s["finished"]:
+        return
+
+    index = s["index"]
+
+    if index >= len(WORDS):
+        await finish_test(
+            update,
+            context,
+            key
+        )
+        return
+
+    english, uzbek = WORDS[index]
+
+    # Har savolda yo'nalish tasodifiy
+    direction = random.choice([
+        "en_to_uz",
+        "uz_to_en"
     ])
 
+    s["direction"] = direction
 
-def lobby_text(session):
+    if direction == "en_to_uz":
 
-    players = session["players"]
+        expected = uzbek
 
-    names = [
-        p["nickname"]
-        for p in players.values()
-    ]
+        flag = get_flag(english)
 
-    text = (
-
-        "🏆 ENGLISH 🇬🇧 — UZBEK 🇺🇿 TURNIR\n"
-
-        "━━━━━━━━━━━━━━━━━━\n\n"
-
-        f"👥 ISHTIROKCHILAR: {len(names)} ta\n\n"
-    )
-
-    if names:
-
-        text += "\n".join(
-            f"• {name}"
-            for name in names
+        question = (
+            f"❓ {index + 1}/{len(WORDS)}\n\n"
+            f"{flag} {english}\n\n"
+            "🇺🇿 O‘zbekchasini yozing:"
         )
 
     else:
 
-        text += (
-            "Hozircha hech kim qo‘shilmagan."
+        expected = english
+
+        flag = get_flag(english)
+
+        question = (
+            f"❓ {index + 1}/{len(WORDS)}\n\n"
+            f"🇺🇿 {uzbek}\n\n"
+            f"{flag or '🇬🇧'} Inglizchasini yozing:"
         )
 
-    text += (
+    s["expected"] = expected
 
-        "\n\n━━━━━━━━━━━━━━━━━━\n"
-
-        "🏁 Istagancha odam turnirga qo‘shilishi mumkin.\n"
-
-        "Har bir ishtirokchi o‘z ismini yozadi.\n\n"
-
-        "🚀 Hamma tayyor bo‘lgach, "
-        "TURNIRNI BOSHLASH tugmasini bosing."
+    msg = await update.effective_message.reply_text(
+        question
     )
 
-    return text
-
-
-async def refresh_lobby(
-    update,
-    context,
-    session
-):
-
-    chat_id = update.effective_chat.id
-
-    message_id = (
-        session.get(
-            "lobby_message_id"
-        )
-    )
-
-    if message_id:
-
-        try:
-
-            await context.bot.edit_message_text(
-
-                chat_id=chat_id,
-
-                message_id=message_id,
-
-                text=lobby_text(
-                    session
-                ),
-
-                reply_markup=lobby_keyboard()
-            )
-
-            return
-
-        except Exception:
-
-            session[
-                "lobby_message_id"
-            ] = None
-
-    msg = await update.effective_chat.send_message(
-
-        lobby_text(session),
-
-        reply_markup=lobby_keyboard()
-    )
-
-    session[
-        "lobby_message_id"
-    ] = msg.message_id
+    s["question_message_id"] = msg.message_id
 
 
 # =========================================================
@@ -641,86 +614,24 @@ async def test(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    key = get_key(update)
-
-    # =========================
-    # GURUH
-    # =========================
-
-    if is_group(update):
-
-        chat_id = update.effective_chat.id
-        user_id = update.effective_user.id
-
-        session = group_sessions.get(
-            chat_id
-        )
-
-        # Turnir davom etayotgan bo‘lsa
-        if session and session["running"]:
-
-            await update.message.reply_text(
-
-                "⚠️ Turnir allaqachon boshlangan.\n\n"
-                "Keyingi turnirda qatnashing."
-            )
-
-            return
-
-        # Eski turnir tugagan bo‘lsa
-        if session and session["all_finished"]:
-
-            session = new_group_session()
-
-            group_sessions[
-                chat_id
-            ] = session
-
-        # Yangi session
-        if session is None:
-
-            session = new_group_session()
-
-            group_sessions[
-                chat_id
-            ] = session
-
-        # Allaqachon qo‘shilgan
-        if user_id in session["players"]:
-
-            await refresh_lobby(
-                update,
-                context,
-                session
-            )
-
-            return
-
-        # Ism kutish
-        state[key] = new_state()
-
-        state[key][
-            "waiting_nickname"
-        ] = True
-
-        await update.message.reply_text(
-
-            "👤 Ismingizni yozing.\n\n"
-            "Masalan: Otabek yoki Kumush"
-        )
-
+    if not update.message:
         return
 
-    # =========================
-    # PRIVATE
-    # =========================
+    key = (
+        update.effective_chat.id,
+        update.effective_user.id,
+    )
 
     state[key] = new_state()
 
-    await ask_private(
-        update,
-        context
+    await update.message.reply_text(
+        "🚀 Test boshlandi!\n\n"
+        f"📚 Jami: {len(WORDS)} ta so‘z\n"
+        f"📝 Har bosqich: {ROUND_SIZE} ta savol\n\n"
+        "Omad! 🔥"
     )
+
+    await ask(update, context)
 
 
 # =========================================================
@@ -732,555 +643,74 @@ async def restart(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    key = get_key(update)
-
-    if is_group(update):
-
-        session = group_sessions.get(
-            update.effective_chat.id
-        )
-
-        if session and session["running"]:
-
-            await update.message.reply_text(
-
-                "⚠️ Turnir davom etmoqda.\n\n"
-                "To‘xtatish uchun:\n"
-                "/stop_tournament"
-            )
-
-            return
-
-        if session:
-
-            session[
-                "players"
-            ].pop(
-                update.effective_user.id,
-                None
-            )
-
-        state[key] = new_state()
-
-        state[key][
-            "waiting_nickname"
-        ] = True
-
-        await update.message.reply_text(
-
-            "🔄 Qayta qo‘shilish uchun "
-            "ismingizni yozing.\n\n"
-
-            "Masalan: Otabek yoki Kumush"
-        )
-
+    if not update.message:
         return
+
+    key = (
+        update.effective_chat.id,
+        update.effective_user.id,
+    )
 
     state[key] = new_state()
 
     await update.message.reply_text(
-        "🔄 Test qayta boshlandi!"
+        "🔄 Test qayta boshlandi!\n\n"
+        f"📚 {len(WORDS)} ta so‘z bor.\n"
+        "🚀 Omad!"
     )
 
-    await ask_private(
-        update,
-        context
-    )
+    await ask(update, context)
 
 
 # =========================================================
-# TURNIRNI TO‘XTATISH
+# JAVOB
 # =========================================================
 
-async def stop_tournament(
+async def answer(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    if not is_group(update):
-
-        await update.message.reply_text(
-            "ℹ️ Bu buyruq faqat guruh turniri uchun."
-        )
-
+    if not update.message:
         return
 
-    chat_id = update.effective_chat.id
-
-    session = group_sessions.get(
-        chat_id
+    key = (
+        update.effective_chat.id,
+        update.effective_user.id,
     )
-
-    if not session or not session["running"]:
-
-        await update.message.reply_text(
-            "ℹ️ Hozir faol turnir yo‘q."
-        )
-
-        return
-
-    task = session.get(
-        "question_task"
-    )
-
-    if task and not task.done():
-
-        task.cancel()
-
-    await safe_delete(
-
-        context.bot,
-
-        chat_id,
-
-        session.get(
-            "question_message_id"
-        )
-    )
-
-    session["running"] = False
-
-    session["all_finished"] = True
-
-    session[
-        "question_message_id"
-    ] = None
-
-    for player in session[
-        "players"
-    ].values():
-
-        player["finished"] = True
-
-    await update.message.reply_text(
-
-        "🛑 TURNIR TO‘XTATILDI!\n\n"
-
-        "Yangi turnir boshlash uchun "
-        "/test buyrug‘ini bosing."
-    )
-
-
-# =========================================================
-# ISMNI RO‘YXATDAN O‘TKAZISH
-# =========================================================
-
-async def register_nickname(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    if (
-        not is_group(update)
-        or not update.message
-        or not update.message.text
-    ):
-
-        return False
-
-    key = get_key(update)
-
-    s = state.get(key)
-
-    if not s or not s[
-        "waiting_nickname"
-    ]:
-
-        return False
-
-    nickname = (
-        update.message.text
-        .strip()
-    )
-
-    if not nickname:
-        return True
-
-    if len(nickname) > 50:
-
-        await update.message.reply_text(
-
-            "⚠️ Ism juda uzun.\n"
-            "50 ta belgigacha kiriting."
-        )
-
-        return True
-
-    chat_id = update.effective_chat.id
-    user_id = update.effective_user.id
-
-    session = group_sessions.get(
-        chat_id
-    )
-
-    if not session or session["running"]:
-
-        await safe_delete(
-
-            context.bot,
-            chat_id,
-            update.message.message_id
-        )
-
-        return True
-
-    s["nickname"] = nickname
-
-    s[
-        "waiting_nickname"
-    ] = False
-
-    s["finished"] = False
-
-    session[
-        "players"
-    ][user_id] = {
-
-        "nickname": nickname,
-
-        "state_key": key,
-
-        "finished": False,
-
-        "score": 0,
-
-        "correct": 0,
-
-        "questions": 0,
-
-        "combo": 0,
-
-        "longest_combo": 0,
-
-        "round_score": 0,
-
-        "round_wrong": [],
-
-        "answered": False,
-    }
-
-    # Ism yozilgan xabarni o‘chirish
-    await safe_delete(
-
-        context.bot,
-
-        chat_id,
-
-        update.message.message_id
-    )
-
-    await update.effective_chat.send_message(
-
-        f"✅ {nickname} turnirga qo‘shildi!\n"
-
-        f"👥 Jami ishtirokchilar: "
-        f"{len(session['players'])} ta"
-    )
-
-    await refresh_lobby(
-        update,
-        context,
-        session
-    )
-
-    return True
-
-
-# =========================================================
-# TURNIRGA QO‘SHILISH TUGMASI
-# =========================================================
-
-async def join_tournament(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    query = update.callback_query
-
-    if not query:
-        return
-
-    await query.answer()
-
-    if not is_group(update):
-        return
-
-    chat_id = update.effective_chat.id
-    user_id = update.effective_user.id
-    key = get_key(update)
-
-    session = group_sessions.get(
-        chat_id
-    )
-
-    if not session:
-
-        await query.message.reply_text(
-            "⚠️ Avval /test buyrug‘ini bosing."
-        )
-
-        return
-
-    if session["running"]:
-
-        await query.message.reply_text(
-            "⚠️ Turnir allaqachon boshlangan."
-        )
-
-        return
-
-    if session["all_finished"]:
-
-        await query.message.reply_text(
-
-            "ℹ️ Bu turnir tugagan.\n"
-            "Yangi turnir uchun /test bosing."
-        )
-
-        return
-
-    if user_id in session["players"]:
-
-        await query.message.reply_text(
-            "✅ Siz allaqachon turnirdasiz."
-        )
-
-        return
-
-    state[key] = new_state()
-
-    state[key][
-        "waiting_nickname"
-    ] = True
-
-    await query.message.reply_text(
-
-        "👤 Ismingizni yozing.\n\n"
-
-        "Masalan: Otabek yoki Kumush"
-    )
-
-
-# =========================================================
-# TURNIRNI BOSHLASH
-# =========================================================
-
-async def start_tournament(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    query = update.callback_query
-
-    if not query:
-        return
-
-    await query.answer()
-
-    if not is_group(update):
-        return
-
-    chat_id = update.effective_chat.id
-
-    session = group_sessions.get(
-        chat_id
-    )
-
-    if not session or not session[
-        "players"
-    ]:
-
-        await query.message.reply_text(
-
-            "⚠️ Avval kamida 1 ta "
-            "ishtirokchi qo‘shilsin."
-        )
-
-        return
-
-    if session["running"]:
-
-        await query.message.reply_text(
-            "⚠️ Turnir allaqachon boshlangan."
-        )
-
-        return
-
-    session["running"] = True
-
-    session["all_finished"] = False
-
-    session["question_index"] = 0
-
-    await safe_delete(
-
-        context.bot,
-
-        chat_id,
-
-        session.get(
-            "lobby_message_id"
-        )
-    )
-
-    session[
-        "lobby_message_id"
-    ] = None
-
-    await update.effective_chat.send_message(
-
-        "🚀 TURNIR BOSHLANDI!\n\n"
-
-        f"👥 Ishtirokchilar: "
-        f"{len(session['players'])} ta\n"
-
-        "🎯 Hamma uchun BIR XIL savol.\n"
-
-        "⏱️ Har savolga 10 soniya.\n"
-
-        "🗑️ Javoblar darhol o‘chiriladi.\n"
-
-        "🏆 Har 10 savolda reyting chiqadi."
-    )
-
-    await send_group_question(
-        update.effective_chat,
-        context,
-        session
-    )
-
-
-# =========================================================
-# PRIVATE SAVOL
-# =========================================================
-
-async def ask_private(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    key = get_key(update)
 
     s = state.get(key)
 
     if not s:
         return
 
-    if s["index"] >= len(WORDS):
-
-        await finish_private(
-            update,
-            context
-        )
-
-        return
-
-    word, uzbek = WORDS[
-        s["index"]
-    ]
-
-    direction = random.choice([
-        "en_uz",
-        "uz_en"
-    ])
-
-    s[
-        "direction"
-    ] = direction
-
-    if direction == "en_uz":
-
-        s[
-            "expected"
-        ] = uzbek
-
-        flag = FLAGS.get(
-            word,
-            ""
-        )
-
-        word_text = (
-            f"{flag} {word}"
-            if flag
-            else word
-        )
-
-        question = (
-
-            f"❓ "
-            f"{s['index'] + 1}/"
-            f"{len(WORDS)}\n\n"
-
-            f"🇬🇧 {word_text}\n\n"
-
-            "🇺🇿 O‘zbekchasini yozing:"
-        )
-
-    else:
-
-        s[
-            "expected"
-        ] = word
-
-        question = (
-
-            f"❓ "
-            f"{s['index'] + 1}/"
-            f"{len(WORDS)}\n\n"
-
-            f"🇺🇿 {uzbek}\n\n"
-
-            "🇬🇧 Inglizchasini yozing:"
-        )
-
-    sent = await update.effective_chat.send_message(
-        question
-    )
-
-    s[
-        "question_message_id"
-    ] = sent.message_id
-
-
-# =========================================================
-# PRIVATE JAVOB
-# =========================================================
-
-async def answer_private(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    if (
-        not update.message
-        or not update.message.text
-    ):
-        return
-
-    key = get_key(update)
-
-    s = state.get(key)
-
-    if (
-        not s
-        or s["waiting_nickname"]
-        or s["finished"]
-    ):
+    if s["finished"]:
         return
 
     if s["waiting_next_round"]:
         return
 
-    user_answer = (
-        update.message.text.strip()
-    )
+    expected = s.get("expected", "")
 
-    expected = s["expected"]
+    if not expected:
+        return
+
+    user_answer = update.message.text.strip()
 
     correct = is_correct(
         user_answer,
         expected
     )
+
+    # Savolni o'chirish
+    await safe_delete(
+        context.bot,
+        update.effective_chat.id,
+        s.get("question_message_id")
+    )
+
+    # Javobni o'chirmaymiz.
+    # Private chatda foydalanuvchi o'z javobini ko'rishi kerak.
 
     if correct:
 
@@ -1290,23 +720,559 @@ async def answer_private(
 
         s["combo"] += 1
 
-        s["longest_combo"] = max(
-            s["longest_combo"],
-            s["combo"]
+        if s["combo"] > s["longest_combo"]:
+            s["longest_combo"] = s["combo"]
+
+        if s["combo"] >= 3:
+
+            if s["combo"] == 3:
+                combo_text = "🔥 COMBO x3!"
+
+            elif s["combo"] == 5:
+                combo_text = "⚡ COMBO x5 — zo‘r!"
+
+            elif s["combo"] % 5 == 0:
+                combo_text = (
+                    f"🔥 COMBO x{s['combo']}!"
+                )
+
+            else:
+                combo_text = ""
+
+        else:
+            combo_text = ""
+
+        if combo_text:
+
+            await update.message.reply_text(
+                f"✅ To‘g‘ri!\n{combo_text}"
+            )
+
+        else:
+
+            await update.message.reply_text(
+                "✅ To‘g‘ri!"
+            )
+
+    else:
+
+        s["combo"] = 0
+
+        s["round_wrong"].append({
+            "question": (
+                WORDS[s["index"]][0]
+                if s["index"] < len(WORDS)
+                else ""
+            ),
+            "answer": expected,
+        })
+
+        await update.message.reply_text(
+            "❌ Noto‘g‘ri.\n"
+            f"To‘g‘ri javob: {expected}"
         )
 
-        result = "✅ To‘g‘ri!"
+    # Keyingi savol
+    s["index"] += 1
 
-        if s["combo"] == 3:
+    # Har 10 ta savolda
+    if (
+        s["index"] % ROUND_SIZE == 0
+        and s["index"] < len(WORDS)
+    ):
 
-            result += (
-                "\n\n🔥 COMBO x3!"
+        await round_result(
+            update,
+            context,
+            key
+        )
+
+        return
+
+    # Oxirgi savol
+    if s["index"] >= len(WORDS):
+
+        await finish_test(
+            update,
+            context,
+            key
+        )
+
+        return
+
+    await ask(update, context)
+
+
+# =========================================================
+# BOSQICH NATIJASI
+# =========================================================
+
+async def round_result(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    key
+):
+
+    s = state[key]
+
+    s["rounds"] += 1
+    s["waiting_next_round"] = True
+
+    start = s["index"] - ROUND_SIZE + 1
+    end = s["index"]
+
+    wrong_text = ""
+
+    if s["round_wrong"]:
+
+        wrong_text = "\n\n❌ Shu bosqichdagi xatolar:\n"
+
+        for item in s["round_wrong"]:
+
+            wrong_text += (
+                f"• {item['question']} → "
+                f"{item['answer']}\n"
             )
 
-        elif s["combo"] == 5:
+    text = (
+        f"📊 {start}–{end}-savollar natijasi\n\n"
 
-            result += (
-                "\n\n⚡ COMBO x5 — zo‘r!"
+        f"🎯 Bosqich natijasi: "
+        f"{s['round_score']}/{ROUND_SIZE}\n"
+
+        f"🏆 Umumiy natija: "
+        f"{s['score']}/{s['index']}\n"
+
+        f"📈 Aniqlik: "
+        f"{(s['score'] / s['index'] * 100):.1f}%\n"
+
+        f"🔥 Eng uzun combo: "
+        f"{s['longest_combo']}\n"
+
+        f"{wrong_text}\n"
+
+        "➡️ Keyingi 10 ta savolga o'tish uchun tugmani bosing."
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "➡️ Keyingi 10 ta",
+                callback_data="next_round"
             )
+        ]
+    ])
 
-        elif (
+    await update.effective_message.reply_text(
+        text,
+        reply_markup=keyboard
+    )
+
+
+# =========================================================
+# KEYINGI 10 TA
+# =========================================================
+
+async def next_round(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    query = update.callback_query
+
+    if not query:
+        return
+
+    await query.answer()
+
+    key = (
+        query.message.chat.id,
+        query.from_user.id,
+    )
+
+    s = state.get(key)
+
+    if not s:
+        return
+
+    if not s["waiting_next_round"]:
+        return
+
+    s["waiting_next_round"] = False
+
+    s["round_score"] = 0
+    s["round_wrong"] = []
+
+    s["question_message_id"] = None
+
+    await query.message.edit_reply_markup(
+        reply_markup=None
+    )
+
+    await ask_from_callback(
+        query,
+        context,
+        key
+    )
+
+
+async def ask_from_callback(
+    query,
+    context,
+    key
+):
+
+    s = state.get(key)
+
+    if not s:
+        return
+
+    if s["finished"]:
+        return
+
+    index = s["index"]
+
+    if index >= len(WORDS):
+        return
+
+    english, uzbek = WORDS[index]
+
+    direction = random.choice([
+        "en_to_uz",
+        "uz_to_en"
+    ])
+
+    s["direction"] = direction
+
+    flag = get_flag(english)
+
+    if direction == "en_to_uz":
+
+        expected = uzbek
+
+        question = (
+            f"❓ {index + 1}/{len(WORDS)}\n\n"
+            f"{flag} {english}\n\n"
+            "🇺🇿 O‘zbekchasini yozing:"
+        )
+
+    else:
+
+        expected = english
+
+        question = (
+            f"❓ {index + 1}/{len(WORDS)}\n\n"
+            f"🇺🇿 {uzbek}\n\n"
+            f"{flag or '🇬🇧'} Inglizchasini yozing:"
+        )
+
+    s["expected"] = expected
+
+    msg = await query.message.reply_text(
+        question
+    )
+
+    s["question_message_id"] = msg.message_id
+
+
+# =========================================================
+# YAKUNIY NATIJA
+# =========================================================
+
+async def finish_test(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    key
+):
+
+    s = state.get(key)
+
+    if not s:
+        return
+
+    if s["finished"]:
+        return
+
+    s["finished"] = True
+
+    total = len(WORDS)
+
+    score = s["score"]
+
+    percentage = (
+        score / total * 100
+        if total
+        else 0
+    )
+
+    text = (
+        "🎉 TEST TUGADI!\n\n"
+
+        f"🏆 Natijangiz: {score}/{total}\n"
+
+        f"📊 Aniqlik: {percentage:.1f}%\n"
+
+        f"🔥 Eng uzun combo: "
+        f"{s['longest_combo']}\n"
+
+        f"📚 Bosqichlar: "
+        f"{s['rounds']}\n\n"
+
+        "👏 Barakalla!"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "🔄 Qaytadan boshlash",
+                callback_data="restart_game"
+            )
+        ]
+    ])
+
+    await update.effective_message.reply_text(
+        text,
+        reply_markup=keyboard
+    )
+
+
+# =========================================================
+# RESTART BUTTON
+# =========================================================
+
+async def restart_game(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    query = update.callback_query
+
+    if not query:
+        return
+
+    await query.answer()
+
+    key = (
+        query.message.chat.id,
+        query.from_user.id,
+    )
+
+    state[key] = new_state()
+
+    await query.message.reply_text(
+        "🔄 Test qayta boshlandi!\n\n"
+        f"📚 Jami: {len(WORDS)} ta so‘z"
+    )
+
+    # Callback'dan savol berish
+    await ask_from_callback(
+        query,
+        context,
+        key
+    )
+
+
+# =========================================================
+# /SCORE
+# =========================================================
+
+async def score(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    if not update.message:
+        return
+
+    key = (
+        update.effective_chat.id,
+        update.effective_user.id,
+    )
+
+    s = state.get(key)
+
+    if not s:
+        await update.message.reply_text(
+            "Avval /test buyrug‘ini bosing."
+        )
+        return
+
+    total_answered = s["index"]
+
+    if total_answered == 0:
+
+        percentage = 0
+
+    else:
+
+        percentage = (
+            s["score"] /
+            total_answered *
+            100
+        )
+
+    await update.message.reply_text(
+
+        "📊 SIZNING NATIJANGIZ\n\n"
+
+        f"👤 {update.effective_user.first_name}\n"
+
+        f"🎯 {s['score']}/{total_answered}\n"
+
+        f"📈 Aniqlik: {percentage:.1f}%\n"
+
+        f"🔥 Eng uzun combo: "
+        f"{s['longest_combo']}\n"
+
+        f"📚 Bosqichlar: "
+        f"{s['rounds']}"
+
+    )
+
+
+# =========================================================
+# TEXT HANDLER
+# =========================================================
+
+async def handle_text(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    if not update.message:
+        return
+
+    key = (
+        update.effective_chat.id,
+        update.effective_user.id,
+    )
+
+    s = state.get(key)
+
+    if not s:
+        await update.message.reply_text(
+            "Avval /test buyrug‘ini bosing."
+        )
+        return
+
+    await answer(
+        update,
+        context
+    )
+
+
+# =========================================================
+# MAIN
+# =========================================================
+
+def main():
+
+    token = os.getenv("BOT_TOKEN")
+
+    if not token:
+        raise RuntimeError(
+            "BOT_TOKEN topilmadi."
+        )
+
+    hostname = os.getenv(
+        "RENDER_EXTERNAL_HOSTNAME"
+    )
+
+    port = int(
+        os.getenv(
+            "PORT",
+            "10000"
+        )
+    )
+
+    if not hostname:
+        raise RuntimeError(
+            "RENDER_EXTERNAL_HOSTNAME topilmadi."
+        )
+
+    application = (
+        Application.builder()
+        .token(token)
+        .build()
+    )
+
+    # Buyruqlar
+    application.add_handler(
+        CommandHandler(
+            "start",
+            start
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "test",
+            test
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "restart",
+            restart
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "score",
+            score
+        )
+    )
+
+    # Tugmalar
+    application.add_handler(
+        CallbackQueryHandler(
+            next_round,
+            pattern="^next_round$"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            restart_game,
+            pattern="^restart_game$"
+        )
+    )
+
+    # Oddiy matn javoblari
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_text
+        )
+    )
+
+    # Render webhook
+    webhook_path = "telegram"
+
+    webhook_url = (
+        f"https://{hostname}/{webhook_path}"
+    )
+
+    # Render'ni uyg'oq ushlab turishga harakat
+    keep_render_awake(
+        f"https://{hostname}/"
+    )
+
+    application.run_webhook(
+
+        listen="0.0.0.0",
+
+        port=port,
+
+        url_path=webhook_path,
+
+        webhook_url=webhook_url,
+
+        drop_pending_updates=True,
+    )
+
+
+if __name__ == "__main__":
+    main()
