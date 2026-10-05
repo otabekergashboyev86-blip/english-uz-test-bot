@@ -18,7 +18,7 @@ from telegram.ext import (
 
 
 # ============================================================
-# 150 TA ASOSIY SO'Z
+# 150 TA SO'Z
 # ============================================================
 
 WORDS = [
@@ -139,8 +139,6 @@ WORDS = [
     ("Late", "kech qolmoq"),
     ("Today", "bugun"),
 
-    # 112–150
-
     ("About", "haqida"),
     ("Father", "ota, dada"),
     ("Mother", "ona"),
@@ -183,10 +181,7 @@ WORDS = [
 ]
 
 
-# 150 ta ekanini tekshiradi
-assert len(WORDS) == 150, (
-    f"XATO: WORDS 150 ta bo‘lishi kerak, hozir {len(WORDS)} ta."
-)
+assert len(WORDS) == 150, f"XATO: WORDS 150 ta emas: {len(WORDS)} ta"
 
 
 # ============================================================
@@ -207,7 +202,6 @@ FLAGS = {
     "The UK": "🇬🇧",
     "The USA (The US)": "🇺🇸",
     "Turkey": "🇹🇷",
-
     "British": "🇬🇧",
     "Polish": "🇵🇱",
     "Spanish": "🇪🇸",
@@ -235,19 +229,18 @@ RNG = random.SystemRandom()
 
 
 # ============================================================
-# NORMALIZATSIYA
+# JAVOBNI NORMALIZATSIYA QILISH
 # ============================================================
 
-def norm(text):
+def normalize_answer(text):
     """
-    Oddiy va kuchli normalizatsiya:
+    Javoblarni juda yumshoq tekshiradi.
 
-    - katta/kichik harf farqini yo'q qiladi
-    - Unicode belgilarni bir xil qiladi
-    - turli apostroflarni bir xil qiladi
-    - ortiqcha bo'shliqlarni yo'q qiladi
-    - oxiridagi . ! ? belgilarini yo'q qiladi
-    - h/x farqini keyinchalik Uzbek javoblarda alohida hisobga olish mumkin
+    1. Katta-kichik harf farqi yo'q
+    2. h/x farqi yo'q
+    3. o‘ / oʻ / o' farqi yo'q
+    4. Ortiqcha bo'shliq farqi yo'q
+    5. Oxiridagi . ! ? , farqi yo'q
     """
 
     if text is None:
@@ -256,12 +249,15 @@ def norm(text):
     text = str(text)
 
     # Unicode
-    text = unicodedata.normalize("NFKC", text)
+    text = unicodedata.normalize(
+        "NFKC",
+        text
+    )
 
-    # lowercase
+    # Kichik harf
     text = text.lower().strip()
 
-    # Barcha apostrof variantlarini oddiy apostrofga o'tkazish
+    # Har xil apostroflarni bir xil qilish
     apostrophes = (
         "’",
         "‘",
@@ -271,56 +267,60 @@ def norm(text):
         "´",
         "′",
         "ʹ",
+        "ʽ",
     )
 
     for ch in apostrophes:
         text = text.replace(ch, "'")
 
-    # Uch nuqtani oddiy uch nuqtaga
-    text = text.replace("…", "...")
+    # MUHIM:
+    # H va X farq qilmaydi
+    #
+    # mashhur = mashxur
+    # xotin = hotin
+    # xursand = hursand
 
-    # Ortiqcha bo'shliqlar
-    text = re.sub(r"\s+", " ", text)
-
-    # Vergul va slash atrofidagi ortiqcha bo'shliq
-    text = re.sub(r"\s*,\s*", ",", text)
-    text = re.sub(r"\s*/\s*", "/", text)
-
-    # Qavs atrofidagi bo'shliq
-    text = re.sub(r"\(\s+", "(", text)
-    text = re.sub(r"\s+\)", ")", text)
-
-    # Nuqta, !, ? faqat oxirida bo'lsa olib tashlanadi
-    text = text.strip(" .!?")
-
-    return text
-
-
-def uzbek_norm(text):
-    """
-    O'zbekcha javob uchun yanada kuchli tekshiruv.
-
-    h/x farqi:
-        mashhur = mashxur
-
-    Bu faqat O'ZBEKCHA javoblarda ishlatiladi.
-    Inglizcha so'zlarda h/x ni almashtirmaydi.
-    """
-
-    text = norm(text)
-
-    # h va x ni bir xil deb hisoblaymiz
     text = text.replace("x", "h")
 
+    # Ortiqcha bo'shliqlar
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
+
+    # Vergul va slash atrofidagi bo'shliqlar
+    text = re.sub(
+        r"\s*,\s*",
+        ",",
+        text
+    )
+
+    text = re.sub(
+        r"\s*/\s*",
+        "/",
+        text
+    )
+
+    # Qavslar
+    text = re.sub(
+        r"\s+",
+        "(",
+        text
+    )
+
+    text = re.sub(
+        r"\s+",
+        ")",
+        text
+    )
+
+    # Oxiridagi belgilar
+    text = text.strip(
+        " .!?,"
+    )
+
     return text
-
-
-def is_uzbek_text(text):
-    """
-    Javobni Uzbek variantlari bilan solishtirish uchun.
-    """
-
-    return uzbek_norm(text)
 
 
 # ============================================================
@@ -379,7 +379,6 @@ EXTRA_ALIASES = {
     "child": [
         "bola",
         "farzand",
-        "bola farzand",
     ],
 
     "children": [
@@ -390,7 +389,6 @@ EXTRA_ALIASES = {
     "uncle": [
         "amaki",
         "tog'a",
-        "togavachcha",
     ],
 
     "aunt": [
@@ -404,8 +402,6 @@ EXTRA_ALIASES = {
         "tog'avachcha",
         "togavachcha",
         "ammavachcha",
-        "amakivachcha bola",
-        "xolavachcha bola",
     ],
 
     "nephew": [
@@ -423,7 +419,7 @@ EXTRA_ALIASES = {
         "qiz jiyan",
         "jiyan qiz bola",
         "qiz bola",
-        "jiyan qiz bola",
+        "jiyan bola",
     ],
 
     "husband": [
@@ -543,8 +539,6 @@ EXTRA_ALIASES = {
         "naqdmi yoki karta",
     ],
 
-    # MUHIM:
-    # Men ...daman / Men ... danman / Men ...danman
     "i’m from ...": [
         "men ...daman",
         "men ... danman",
@@ -561,185 +555,172 @@ EXTRA_ALIASES = {
 
 
 # ============================================================
-# BAYROQ OLISH
+# JAVOB VARIANTLARINI YIG'ISH
 # ============================================================
 
-def get_flag(word):
-    return FLAGS.get(word, "🇬🇧")
+def answer_variants(text):
 
+    if not text:
+        return set()
 
-# ============================================================
-# JAVOB VARIANTLARINI YARATISH
-# ============================================================
+    variants = set()
 
-def build_options(en, uz, direction):
+    # Asosiy javob
+    variants.add(
+        normalize_answer(text)
+    )
 
-    expected = uz if direction == "en_to_uz" else en
+    # Vergul
+    if "," in text:
 
-    options = [expected]
+        for part in text.split(","):
 
-    # Uzbek javoblar
-    if direction == "en_to_uz":
+            part = part.strip()
 
-        # Vergul bilan ajratilgan javoblar
-        if "," in expected:
-            parts = expected.split(",")
+            if part:
+                variants.add(
+                    normalize_answer(part)
+                )
 
-            for part in parts:
-                part = part.strip()
+    # Slash
+    if "/" in text:
 
-                if part:
-                    options.append(part)
+        for part in text.split("/"):
 
-        # Slash bilan ajratilgan javoblar
-        if "/" in expected:
-            parts = expected.split("/")
+            part = part.strip()
 
-            for part in parts:
-                part = part.strip()
+            if part:
+                variants.add(
+                    normalize_answer(part)
+                )
 
-                if part:
-                    options.append(part)
+    # Qavs
+    if "(" in text and ")" in text:
 
-        # Qavs ichidagi variantlar
-        if "(" in expected and ")" in expected:
+        outside = re.sub(
+            r"\s*[^)]*",
+            "",
+            text
+        ).strip()
 
-            outside = re.sub(
-                r"\s*\([^)]*\)",
-                "",
-                expected
-            ).strip()
-
-            match = re.search(
-                r"\(([^)]*)\)",
-                expected
+        if outside:
+            variants.add(
+                normalize_answer(outside)
             )
 
-            if outside:
-                options.append(outside)
-
-            if match:
-                inside = match.group(1).strip()
-
-                if inside:
-                    options.append(inside)
-
-        # Maxsus aliaslar
-        options.extend(
-            EXTRA_ALIASES.get(
-                en.lower(),
-                []
-            )
+        match = re.search(
+            r"([^)]*)",
+            text
         )
 
-    # English javob
-    else:
+        if match:
 
-        # The USA (The US)
-        if "(" in en and ")" in en:
+            inside = match.group(1).strip()
 
-            outside = re.sub(
-                r"\s*\([^)]*\)",
-                "",
-                en
-            ).strip()
+            if inside:
+                variants.add(
+                    normalize_answer(inside)
+                )
 
-            match = re.search(
-                r"\(([^)]*)\)",
-                en
-            )
-
-            if outside:
-                options.append(outside)
-
-            if match:
-                inside = match.group(1).strip()
-
-                if inside:
-                    options.append(inside)
-
-        # Cousin(e)
-        if en.lower() == "cousin(e)":
-            options.extend([
-                "cousin",
-            ])
-
-    # Takrorlarni olib tashlash
-    unique = []
-
-    seen = set()
-
-    for option in options:
-
-        if not option:
-            continue
-
-        key = norm(option)
-
-        if key not in seen:
-            seen.add(key)
-            unique.append(option)
-
-    return unique
+    return {
+        x
+        for x in variants
+        if x
+    }
 
 
 # ============================================================
 # JAVOBNI TEKSHIRISH
 # ============================================================
 
-def is_correct(user_answer, en, uz, direction):
+def is_correct(
+    user_answer,
+    en,
+    uz,
+    direction
+):
 
-    if not user_answer:
-        return False
-
-    user_answer = str(user_answer).strip()
-
-    options = build_options(
-        en,
-        uz,
-        direction
+    user = normalize_answer(
+        user_answer
     )
 
-    # --------------------------------------------------------
+    if not user:
+        return False
+
+    # ========================================================
     # ENGLISH -> UZBEK
-    # h/x farqi ham hisobga olinadi
-    # --------------------------------------------------------
+    # ========================================================
 
     if direction == "en_to_uz":
 
-        user = is_uzbek_text(user_answer)
+        valid = set()
 
-        valid_answers = {
-            is_uzbek_text(option)
-            for option in options
-            if option
-        }
+        # Asosiy javob
+        valid.update(
+            answer_variants(uz)
+        )
 
-        return user in valid_answers
+        # Qo'shimcha javoblar
+        for alias in EXTRA_ALIASES.get(
+            en.lower(),
+            []
+        ):
 
-    # --------------------------------------------------------
+            valid.add(
+                normalize_answer(alias)
+            )
+
+        return user in valid
+
+    # ========================================================
     # UZBEK -> ENGLISH
-    # Bu yerda h/x almashtirilmaydi.
-    # --------------------------------------------------------
+    # ========================================================
 
-    user = norm(user_answer)
+    valid = set()
 
-    valid_answers = {
-        norm(option)
-        for option in options
-        if option
-    }
+    # Asosiy English
+    valid.add(
+        normalize_answer(en)
+    )
 
-    return user in valid_answers
+    # Qavsli English
+    if "(" in en and ")" in en:
+
+        outside = re.sub(
+            r"\s*[^)]*",
+            "",
+            en
+        ).strip()
+
+        if outside:
+            valid.add(
+                normalize_answer(outside)
+            )
+
+        match = re.search(
+            r"([^)]*)",
+            en
+        )
+
+        if match:
+
+            inside = match.group(1).strip()
+
+            if inside:
+                valid.add(
+                    normalize_answer(inside)
+                )
+
+    return user in valid
 
 
 # ============================================================
-# YANGI TEST HOLATI
+# RANDOM TEST HOLATI
 # ============================================================
 
 def new_state():
 
-    # 150 ta indeksni to'liq RANDOM qiladi
+    # 150 ta so'zning random tartibi
     order = RNG.sample(
         range(len(WORDS)),
         len(WORDS)
@@ -748,8 +729,6 @@ def new_state():
     return {
         "index": 0,
         "score": 0,
-
-        # RANDOM tartib shu yerda saqlanadi
         "order": order,
 
         "round_correct": 0,
@@ -808,7 +787,6 @@ async def ask(
 
     index = s["index"]
 
-    # Test tugagan bo'lsa
     if index >= len(WORDS):
 
         await finish_test(
@@ -818,7 +796,7 @@ async def ask(
 
         return
 
-    # RANDOM WORD
+    # RANDOM SO'Z
     word_index = s["order"][index]
 
     en, uz = WORDS[word_index]
@@ -834,23 +812,18 @@ async def ask(
     s["direction"] = direction
     s["answered"] = False
 
-    flag = get_flag(en)
-
-    # --------------------------------------------------------
-    # English -> Uzbek
-    # --------------------------------------------------------
+    flag = FLAGS.get(
+        en,
+        "🇬🇧"
+    )
 
     if direction == "en_to_uz":
 
         text = (
             f"❓ {index + 1}/{len(WORDS)}\n\n"
             f"{flag} {en}\n\n"
-            f"🇺🇿 O‘zbekchasini yozing:"
+            "🇺🇿 O‘zbekchasini yozing:"
         )
-
-    # --------------------------------------------------------
-    # Uzbek -> English
-    # --------------------------------------------------------
 
     else:
 
@@ -874,7 +847,9 @@ async def ask(
             text
         )
 
-    s["question_message_id"] = message.message_id
+    s["question_message_id"] = (
+        message.message_id
+    )
 
 
 # ============================================================
@@ -888,7 +863,7 @@ async def start_test(
 
     uid = update.effective_user.id
 
-    # Yangi RANDOM test
+    # Har safar yangi random
     state[uid] = new_state()
 
     await update.message.reply_text(
@@ -956,15 +931,33 @@ async def score_command(
         f"🏆 To‘g‘ri: {s['score']}/{answered}\n"
         f"📈 Aniqlik: {accuracy:.1f}%\n"
         f"🔥 Eng uzun combo: {s['max_combo']}\n"
-        f"📚 Joriy savol: {answered}/150"
+        f"📚 Joriy: {answered}/150"
     )
 
 
 # ============================================================
 # /WORDS
-# Barcha 150 ta so'zni Telegramda ko'rsatadi
 # ============================================================
 
 async def words_command(
     update,
-    cont
+    context
+):
+
+    text = "📚 150 TA SO‘Z\n\n"
+
+    for i, (english, uzbek) in enumerate(
+        WORDS,
+        start=1
+    ):
+
+        text += (
+            f"{i}. {english} — {uzbek}\n"
+        )
+
+    # Telegram xabar limiti
+    chunk_size = 3500
+
+    for start in range(
+        0,
+       
